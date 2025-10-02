@@ -10,6 +10,7 @@ namespace Address {
 
 namespace Base58 {
 	std::string toBase58(const secp256k1::uint256 &x);
+	std::string toBase58(const unsigned char *data, size_t length);
 	secp256k1::uint256 toBigInt(const std::string &s);
 	void getMinMaxFromPrefix(const std::string &prefix, secp256k1::uint256 &minValueOut, secp256k1::uint256 &maxValueOut);
 
@@ -18,7 +19,12 @@ namespace Base58 {
 	bool isBase58(std::string s);
 };
 
-
+namespace WIF
+{
+	std::string privateKeyToWIF(const secp256k1::uint256 &privateKey, bool compressed = false);
+	std::string privateKeyToWIFUncompressed(const secp256k1::uint256 &privateKey);
+	std::string privateKeyToWIFCompressed(const secp256k1::uint256 &privateKey);
+};
 
 namespace Hash {
 

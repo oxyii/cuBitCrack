@@ -80,6 +80,7 @@ void KeyFinder::setTargets(std::string targetsFile)
 	_targets.clear();
 
 	std::string line;
+	unsigned int invalidCount = 0;
 	Logger::log(LogLevel::Info, "Loading addresses from '" + targetsFile + "'");
 	while(std::getline(inFile, line)) {
 		util::removeNewline(line);
@@ -87,8 +88,8 @@ void KeyFinder::setTargets(std::string targetsFile)
 
 		if(line.length() > 0) {
 			if(!Address::verifyAddress(line)) {
-				Logger::log(LogLevel::Error, "Invalid address '" + line + "'");
-				throw KeySearchException();
+				invalidCount++;
+				continue;
 			}
 
 			KeySearchTarget t;
@@ -98,6 +99,18 @@ void KeyFinder::setTargets(std::string targetsFile)
 			_targets.insert(t);
 		}
 	}
+
+	if (invalidCount > 0)
+	{
+		Logger::log(LogLevel::Warning, util::formatThousands(invalidCount) + " invalid address" + (invalidCount > 1 ? "es" : "") + " skipped");
+	}
+
+	if (_targets.size() == 0)
+	{
+		Logger::log(LogLevel::Error, "No valid addresses found in file");
+		throw KeySearchException();
+	}
+
 	Logger::log(LogLevel::Info, util::formatThousands(_targets.size()) + " addresses loaded ("
 		+ util::format("%.1f", (double)(sizeof(KeySearchTarget) * _targets.size()) / (double)(1024 * 1024)) + "MB)");
 
@@ -218,7 +231,8 @@ void KeyFinder::run()
 
         std::vector<KeySearchResult> results;
 
-        if(_device->getResults(results) > 0) {
+		if (_device->getResults(results) > 0)
+		{
 
 			for(unsigned int i = 0; i < results.size(); i++) {
 
@@ -237,7 +251,7 @@ void KeyFinder::run()
 			}
 		}
 
-        // Stop if there are no keys left
+		// Stop if there are no keys left
         if(_targets.size() == 0) {
             Logger::log(LogLevel::Info, "No targets remaining");
             _running = false;

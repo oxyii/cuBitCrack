@@ -1,17 +1,11 @@
 #include "cudabridge.h"
 
+void keyFinderKernel(unsigned int blocks, unsigned int threads, unsigned int points, bool useDouble, int compression);
 
-__global__ void keyFinderKernel(int points, int compression);
-__global__ void keyFinderKernelWithDouble(int points, int compression);
-
-void callKeyFinderKernel(int blocks, int threads, int points, bool useDouble, int compression)
+void callKeyFinderKernel(unsigned int blocks, unsigned int threads, unsigned int points, bool useDouble, int compression)
 {
-	if(useDouble) {
-		keyFinderKernelWithDouble <<<blocks, threads >>>(points, compression);
-	} else {
-		keyFinderKernel <<<blocks, threads>>> (points, compression);
-	}
-	waitForKernel();
+    keyFinderKernel(blocks, threads, points, useDouble, compression);
+    waitForKernel();
 }
 
 
@@ -23,7 +17,7 @@ void waitForKernel()
     if(err != cudaSuccess) {
         throw cuda::CudaException(err);
     }
- 
+
     // Wait for kernel to complete
     err = cudaDeviceSynchronize();
 	fflush(stdout);

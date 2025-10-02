@@ -1,185 +1,59 @@
-# BitCrack
+# High-Performance BitCrack Fork
 
-A tool for brute-forcing Bitcoin private keys. The main purpose of this project is to contribute to the effort of solving the [Bitcoin puzzle transaction](https://blockchain.info/tx/08389f34c98c606322740c0be6a7125d9860bb8d5cb182c02f98461e5fa6cd15): A transaction with 32 addresses that become increasingly difficult to crack.
+The original README can be found [here](https://github.com/brichard19/BitCrack).
 
+## Changes Made
 
-### Using BitCrack
+OpenCL has been completely removed.
+CUDA builds by default without specifying the `BUILD_CUDA` environment variable.
 
-#### Usage
+### Performance Optimization
 
+Used coalesced memory access patterns, which significantly improved performance without breaking the original logic.
 
-Use `cuBitCrack.exe` for CUDA devices and `clBitCrack.exe` for OpenCL devices.
+For example: A modest RTX 4060 on the original build achieved `750-770 MKey/s`.
+- In this build - `950+ MKey/s` with `-b 640 -t 128 -p 1024` (`83,886,080 starting points`, memory fully utilized at 100%).
+- Found even more optimal parameters for RTX 4060... something like `-b 240 -t 256 -p 1024` (`62,914,560 starting points`, memory `5878 / 7805MB`).
 
-### Note: **clBitCrack.exe is still EXPERIMENTAL**, as users have reported critial bugs when running on some AMD and Intel devices.
+Actually, measurements showed that the computational potential is much higher.
+Specifically, RTX 4060 is capable of "adding" up to 1500 MKey/s.
+The problem is in the memory bus bandwidth.
 
-**Note for Intel users:**
+### Memory Usage Optimization
 
-There is bug in Intel's OpenCL implementation which affects BitCrack. Details here: https://github.com/brichard19/BitCrack/issues/123
+Completely redesigned initialization.
+In the original version, keys were created on the host and copied to GPU, then points were formed from these keys.
+After point formation, keys were cleared from GPU, leaving more than 25% of memory unused.
 
+Now a single key is formed on the host.
+GPU calculates the required key offset for its thread on-the-fly and forms its own point.
+Result - ability to use almost all memory.
 
-```
-xxBitCrack.exe [OPTIONS] [TARGETS]
+### Cosmetic Improvements
 
-Where [TARGETS] are one or more Bitcoin address
+- Added WIF format to output.
+- Added Telegram notification option to argument list.
+- Fixed Bloom filter bug. For those who didn't understand - you can now specify more than 16 targets.
+- If there's an error in the targets file, the system won't stop. It will notify how many lines were skipped and start processing without invalid ones.
+- Dependency is configured for CUDA 13.0, but can be downgraded to 12.x. Tested on 12.8.
+- Updated compilation flags.
+- Lots of minor improvements, fixes, and optimizations.
 
-Options:
+## Building
 
--i, --in FILE
-    Read addresses from FILE, one address per line. If FILE is "-" then stdin is read
+Builds under Linux (tested on Ubuntu) and Windows.
+Compared to the original version - nothing new: set your `sm cap` and build, without the `BUILD_CUDA` flag.
+By default, `sm cap 89` is set (RTX 40xx).
 
--o, --out FILE
-    Append private keys to FILE, one per line
+## Disclaimer
 
--d, --device N
-    Use device with ID equal to N
+_This software is provided "as is", without any warranties._
+_It is intended exclusively for research purposes: studying performance optimization on the CUDA platform._
 
--b, --blocks BLOCKS
-    The number of CUDA blocks
+_**Hardware Risk Warning:** This code creates extreme load on graphics processors, which may lead to overheating and failure if used improperly._
+_You use it at your own risk._
+_The developer is not responsible for any damage caused to your hardware._
 
--t, --threads THREADS
-    Threads per block
-
--p, --points NUMBER
-    Each thread will process NUMBER keys at a time
-
---keyspace KEYSPACE
-    Specify the range of keys to search, where KEYSPACE is in the format,
-
-	START:END start at key START, end at key END
-	START:+COUNT start at key START and end at key START + COUNT
-    :END start at key 1 and end at key END
-	:+COUNT start at key 1 and end at key 1 + COUNT
-
--c, --compressed
-    Search for compressed keys (default). Can be used with -u to also search uncompressed keys
-
--u, --uncompressed
-    Search for uncompressed keys, can be used with -c to search compressed keys
-
---compression MODE
-    Specify the compression mode, where MODE is 'compressed' or 'uncompressed' or 'both'
-
---list-devices
-    List available devices
-
---stride NUMBER
-    Increment by NUMBER
-
---share M/N
-    Divide the keyspace into N equal sized shares, process the Mth share
-
---continue FILE
-    Save/load progress from FILE
-```
-
-#### Examples
-
-The simplest usage, the keyspace will begin at 0, and the CUDA parameters will be chosen automatically
-```
-xxBitCrack.exe 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH
-```
-
-Multiple keys can be searched at once with minimal impact to performance. Provide the keys on the command line, or in a file with one address per line
-```
-xxBitCrack.exe 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH 15JhYXn6Mx3oF4Y7PcTAv2wVVAuCFFQNiP 19EEC52krRUK1RkUAEZmQdjTyHT7Gp1TYT
-```
-
-To start the search at a specific private key, use the `--keyspace` option:
-
-```
-xxBitCrack.exe --keyspace 766519C977831678F0000000000 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH
-```
-
-The `--keyspace` option can also be used to search a specific range:
-
-```
-xxBitCrack.exe --keyspace 80000000:ffffffff 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH
-```
-
-To periodically save progress, the `--continue` option can be used. This is useful for recovering
-after an unexpected interruption:
-
-```
-xxBitCrack.exe --keyspace 80000000:ffffffff 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH
-...
-GeForce GT 640   224/1024MB | 1 target 10.33 MKey/s (1,244,659,712 total) [00:01:58]
-^C
-xxBitCrack.exe --keyspace 80000000:ffffffff 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH
-...
-GeForce GT 640   224/1024MB | 1 target 10.33 MKey/s (1,357,905,920 total) [00:02:12]
-```
-
-
-Use the `-b,` `-t` and `-p` options to specify the number of blocks, threads per block, and keys per thread.
-```
-xxBitCrack.exe -b 32 -t 256 -p 16 1FshYsUh3mqgsG29XpZ23eLjWV8Ur3VwH
-```
-
-### Choosing the right parameters for your device
-
-GPUs have many cores. Work for the cores is divided into blocks. Each block contains threads.
-
-There are 3 parameters that affect performance: blocks, threads per block, and keys per thread.
-
-
-`blocks:` Should be a multiple of the number of compute units on the device. The default is 32.
-
-`threads:` The number of threads in a block. This must be a multiple of 32. The default is 256.
-
-`Keys per thread:` The number of keys each thread will process. The performance (keys per second)
-increases asymptotically with this value. The default is256. Increasing this value will cause the
-kernel to run longer, but more keys will be processed.
-
-
-### Build dependencies
-
-Visual Studio 2019 (if on Windows)
-
-For CUDA: CUDA Toolkit 10.1
-
-For OpenCL: An OpenCL SDK (The CUDA toolkit contains an OpenCL SDK).
-
-
-### Building in Windows
-
-Open the Visual Studio solution.
-
-Build the `clKeyFinder` project for an OpenCL build.
-
-Build the `cuKeyFinder` project for a CUDA build.
-
-Note: By default the NVIDIA OpenCL headers are used. You can set the header and library path for
-OpenCL in the `BitCrack.props` property sheet.
-
-### Building in Linux
-
-Using `make`:
-
-Build CUDA:
-```
-make BUILD_CUDA=1
-```
-
-Build OpenCL:
-```
-make BUILD_OPENCL=1
-```
-
-Or build both:
-```
-make BUILD_CUDA=1 BUILD_OPENCL=1
-```
-
-### Supporting this project
-
-If you find this project useful and would like to support it, consider making a donation. Your support is greatly appreciated!
-
-**BTC**: `1LqJ9cHPKxPXDRia4tteTJdLXnisnfHsof`
-
-**LTC**: `LfwqkJY7YDYQWqgR26cg2T1F38YyojD67J`
-
-**ETH**: `0xd28082CD48E1B279425346E8f6C651C45A9023c5`
-
-### Contact
-
-Send any questions or comments to bitcrack.project@gmail.com
+_**Important Legal Notice:** The developer does not encourage or support the use of this code for any illegal activities, including but not limited to attempts at unauthorized access to wallets or third-party data._
+_Any such use violates the laws of most countries._
+_All responsibility for using the program lies with the end user._

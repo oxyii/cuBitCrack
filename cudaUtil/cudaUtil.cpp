@@ -15,7 +15,7 @@ cuda::CudaDeviceInfo cuda::getDeviceInfo(int device)
 	}
 
 	err = cudaGetDeviceProperties(&properties, device);
-	
+
 	if(err) {
 		throw cuda::CudaException(err);
 	}

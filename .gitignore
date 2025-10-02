@@ -288,3 +288,7 @@ __pycache__/
 # tools/
 
 TestData/
+
+.vscode
+lib
+*.bin

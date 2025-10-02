@@ -1,4 +1,6 @@
 #include <map>
+#include <vector>
+#include <string>
 #include "CryptoUtil.h"
 
 #include "AddressUtil.h"
@@ -81,6 +83,59 @@ std::string Base58::toBase58(const secp256k1::uint256 &x)
 	}
 
 	return s;
+}
+
+std::string Base58::toBase58(const unsigned char *data, size_t length)
+{
+	// Подсчет ведущих нулей
+	size_t zeros = 0;
+	while (zeros < length && data[zeros] == 0)
+	{
+		zeros++;
+	}
+
+	// Выделяем место для результата
+	size_t size = length * 138 / 100 + 1; // Максимальный размер в base58
+	std::vector<unsigned char> b58(size, 0);
+
+	// Процессируем байты
+	for (size_t i = zeros; i < length; i++)
+	{
+		int carry = data[i];
+		// Проходим через все цифры base58 от младших к старшим
+		for (size_t j = 0; j < size; j++)
+		{
+			carry += 256 * b58[size - 1 - j];
+			b58[size - 1 - j] = carry % 58;
+			carry /= 58;
+		}
+	}
+
+	// Пропускаем ведущие нули в результате base58
+	size_t start = size;
+	for (size_t i = 0; i < size; i++)
+	{
+		if (b58[i] != 0)
+		{
+			start = i;
+			break;
+		}
+	}
+
+	// Строим итоговую строку
+	std::string result;
+	result.reserve(zeros + (size - start));
+
+	// Добавляем '1' для каждого ведущего нуля в исходных данных
+	result.assign(zeros, '1');
+
+	// Добавляем остальные символы base58
+	for (size_t i = start; i < size; i++)
+	{
+		result += BASE58_STRING[b58[i]];
+	}
+
+	return result;
 }
 
 void Base58::getMinMaxFromPrefix(const std::string &prefix, secp256k1::uint256 &minValueOut, secp256k1::uint256 &maxValueOut)

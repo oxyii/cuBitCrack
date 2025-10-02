@@ -6,54 +6,40 @@
 
 #include <vector>
 #include "secp256k1.h"
+#include "uint256.h"
 
-
-class CudaDeviceKeys {
+class CudaDeviceKeys
+{
 
 private:
-	int _blocks;
-
-	int _threads;
-
-	int _pointsPerThread;
+	unsigned int _blocks;
+	unsigned int _threads;
+	unsigned int _pointsPerThread;
 
 	unsigned int _numKeys;
 
-	unsigned int *_devX;
+	uint256 *_devBasePrivate;
+	uint256 *_devStride;
 
-	unsigned int *_devY;
+	uint256 *_devChain;
 
-	unsigned int *_devPrivate;
+	uint256 *_devBasePointX;
+	uint256 *_devBasePointY;
 
-	unsigned int *_devChain;
+	unsigned int _step;
 
-	unsigned int *_devBasePointX;
+	cudaError_t allocateChainBuf(size_t count);
 
-	unsigned int *_devBasePointY;
-
-	int _step;
-
-	int getIndex(int block, int thread, int idx);
-
-	void splatBigInt(unsigned int *dest, int block, int thread, int idx, const secp256k1::uint256 &i);
-
-	secp256k1::uint256 readBigInt(unsigned int *src, int block, int thread, int idx);
-
-	cudaError_t allocateChainBuf(unsigned int count);
-
-	cudaError_t initializePublicKeys(size_t count);
+	cudaError_t initializeBaseKey(const secp256k1::uint256 &basePrivateKey, const secp256k1::uint256 &stride);
 
 	cudaError_t initializeBasePoints();
 
-
 public:
-
 	CudaDeviceKeys()
 	{
 		_numKeys = 0;
-		_devX = NULL;
-		_devY = NULL;
-		_devPrivate = NULL;
+		_devBasePrivate = NULL;
+		_devStride = NULL;
 		_devChain = NULL;
 		_devBasePointX = NULL;
 		_devBasePointY = NULL;
@@ -62,20 +48,14 @@ public:
 
 	~CudaDeviceKeys()
 	{
-		clearPublicKeys();
 		clearPrivateKeys();
 	}
 
-	cudaError_t init(int blocks, int threads, int pointsPerThread, const std::vector<secp256k1::uint256> &privateKeys);
-
-	bool selfTest(const std::vector<secp256k1::uint256> &privateKeys);
+	cudaError_t init(unsigned int blocks, unsigned int threads, unsigned int pointsPerThread, const secp256k1::uint256 &basePrivateKey, const secp256k1::uint256 &stride);
 
 	cudaError_t doStep();
 
 	void clearPrivateKeys();
-
-	void clearPublicKeys();
-
 };
 
 #endif

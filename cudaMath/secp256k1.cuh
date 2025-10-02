@@ -4,161 +4,17 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#include "uint256.h"
+#include "heap.cuh"
 #include "ptx.cuh"
-
 
 /**
  Prime modulus 2^256 - 2^32 - 977
  */
 __constant__ static unsigned int _P[8] = {
-	0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFE, 0xFFFFFC2F
-};
+	0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFE, 0xFFFFFC2F};
 
-/**
- Base point X
- */
-__constant__ static unsigned int _GX[8] = {
-	0x79BE667E, 0xF9DCBBAC, 0x55A06295, 0xCE870B07, 0x029BFCDB, 0x2DCE28D9, 0x59F2815B, 0x16F81798
-};
-
-
-/**
- Base point Y
- */
-__constant__ static unsigned int _GY[8] = {
-	0x483ADA77, 0x26A3C465, 0x5DA4FBFC, 0x0E1108A8, 0xFD17B448, 0xA6855419, 0x9C47D08F, 0xFB10D4B8
-};
-
-
-/**
- * Group order
- */
-__constant__ static unsigned int _N[8] = {
-	0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFE, 0xBAAEDCE6, 0xAF48A03B, 0xBFD25E8C, 0xD0364141
-};
-
-__constant__ static unsigned int _BETA[8] = {
-	0x7AE96A2B, 0x657C0710, 0x6E64479E, 0xAC3434E9, 0x9CF04975, 0x12F58995, 0xC1396C28, 0x719501EE
-};
-
-
-__constant__ static unsigned int _LAMBDA[8] = {
-	0x5363AD4C, 0xC05C30E0, 0xA5261C02, 0x8812645A, 0x122E22EA, 0x20816678, 0xDF02967C, 0x1B23BD72
-};
-
-
-__device__ __forceinline__ bool isInfinity(const unsigned int x[8])
-{
-	bool isf = true;
-
-	for(int i = 0; i < 8; i++) {
-		if(x[i] != 0xffffffff) {
-			isf = false;
-		}
-	}
-
-	return isf;
-}
-
-__device__ __forceinline__ static void copyBigInt(const unsigned int src[8], unsigned int dest[8])
-{
-	for(int i = 0; i < 8; i++) {
-		dest[i] = src[i];
-	}
-}
-
-__device__ static bool equal(const unsigned int *a, const unsigned int *b)
-{
-	bool eq = true;
-
-	for(int i = 0; i < 8; i++) {
-		eq &= (a[i] == b[i]);
-	}
-
-	return eq;
-}
-
-/**
- * Reads an 8-word big integer from device memory
- */
-__device__ static void readInt(const unsigned int *ara, int idx, unsigned int x[8])
-{
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
-	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-
-	int index = base + threadId;
-
-	for (int i = 0; i < 8; i++) {
-		x[i] = ara[index];
-		index += totalThreads;
-	}
-}
-
-__device__ static unsigned int readIntLSW(const unsigned int *ara, int idx)
-{
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
-	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-
-	int index = base + threadId;
-
-	return ara[index + totalThreads * 7];
-}
-
-/**
- * Writes an 8-word big integer to device memory
- */
-__device__ static void writeInt(unsigned int *ara, int idx, const unsigned int x[8])
-{
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
-	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-
-	int index = base + threadId;
-
-	for (int i = 0; i < 8; i++) {
-		ara[index] = x[i];
-		index += totalThreads;
-	}
-}
-
-/**
- * Subtraction mod p
- */
-__device__ static void subModP(const unsigned int a[8], const unsigned int b[8], unsigned int c[8])
-{
-	sub_cc(c[7], a[7], b[7]);
-	subc_cc(c[6], a[6], b[6]);
-	subc_cc(c[5], a[5], b[5]);
-	subc_cc(c[4], a[4], b[4]);
-	subc_cc(c[3], a[3], b[3]);
-	subc_cc(c[2], a[2], b[2]);
-	subc_cc(c[1], a[1], b[1]);
-	subc_cc(c[0], a[0], b[0]);
-
-	unsigned int borrow = 0;
-	subc(borrow, 0, 0);
-
-	if (borrow) {
-		add_cc(c[7], c[7], _P[7]);
-		addc_cc(c[6], c[6], _P[6]);
-		addc_cc(c[5], c[5], _P[5]);
-		addc_cc(c[4], c[4], _P[4]);
-		addc_cc(c[3], c[3], _P[3]);
-		addc_cc(c[2], c[2], _P[2]);
-		addc_cc(c[1], c[1], _P[1]);
-		addc(c[0], c[0], _P[0]);
-	}
-}
-
-__device__ static unsigned int add(const unsigned int a[8], const unsigned int b[8], unsigned int c[8])
+__device__ __forceinline__ static unsigned int add(const uint256 &a, const uint256 &b, uint256 &c)
 {
 	add_cc(c[7], a[7], b[7]);
 	addc_cc(c[6], a[6], b[6]);
@@ -175,7 +31,7 @@ __device__ static unsigned int add(const unsigned int a[8], const unsigned int b
 	return carry;
 }
 
-__device__ static unsigned int sub(const unsigned int a[8], const unsigned int b[8], unsigned int c[8])
+__device__ __forceinline__ static unsigned int sub(const uint256 &a, const uint256 &b, uint256 &c)
 {
 	sub_cc(c[7], a[7], b[7]);
 	subc_cc(c[6], a[6], b[6]);
@@ -192,8 +48,7 @@ __device__ static unsigned int sub(const unsigned int a[8], const unsigned int b
 	return (borrow & 0x01);
 }
 
-
-__device__ static void addModP(const unsigned int a[8], const unsigned int b[8], unsigned int c[8])
+__device__ __forceinline__ static void addModP(const uint256 &a, const uint256 &b, uint256 &c)
 {
 	add_cc(c[7], a[7], b[7]);
 	addc_cc(c[6], a[6], b[6]);
@@ -208,16 +63,21 @@ __device__ static void addModP(const unsigned int a[8], const unsigned int b[8],
 	addc(carry, 0, 0);
 
 	bool gt = false;
-	for(int i = 0; i < 8; i++) {
-		if(c[i] > _P[i]) {
+	for (int i = 0; i < 8; i++)
+	{
+		if (c[i] > _P[i])
+		{
 			gt = true;
 			break;
-		} else if(c[i] < _P[i]) {
+		}
+		else if (c[i] < _P[i])
+		{
 			break;
 		}
 	}
 
-	if(carry || gt) {
+	if (carry || gt)
+	{
 		sub_cc(c[7], c[7], _P[7]);
 		subc_cc(c[6], c[6], _P[6]);
 		subc_cc(c[5], c[5], _P[5]);
@@ -229,16 +89,42 @@ __device__ static void addModP(const unsigned int a[8], const unsigned int b[8],
 	}
 }
 
-
-
-__device__ static void mulModP(const unsigned int a[8], const unsigned int b[8], unsigned int c[8])
+__device__ __forceinline__ static void subModP(const uint256 &a, const uint256 &b, uint256 &c)
 {
-	unsigned int high[8] = { 0 };
+	sub_cc(c[7], a[7], b[7]);
+	subc_cc(c[6], a[6], b[6]);
+	subc_cc(c[5], a[5], b[5]);
+	subc_cc(c[4], a[4], b[4]);
+	subc_cc(c[3], a[3], b[3]);
+	subc_cc(c[2], a[2], b[2]);
+	subc_cc(c[1], a[1], b[1]);
+	subc_cc(c[0], a[0], b[0]);
+
+	unsigned int borrow = 0;
+	subc(borrow, 0, 0);
+
+	if (borrow)
+	{
+		add_cc(c[7], c[7], _P[7]);
+		addc_cc(c[6], c[6], _P[6]);
+		addc_cc(c[5], c[5], _P[5]);
+		addc_cc(c[4], c[4], _P[4]);
+		addc_cc(c[3], c[3], _P[3]);
+		addc_cc(c[2], c[2], _P[2]);
+		addc_cc(c[1], c[1], _P[1]);
+		addc(c[0], c[0], _P[0]);
+	}
+}
+
+__device__ __forceinline__ static void mulModP(const uint256 &a, const uint256 &b, uint256 &c)
+{
+	uint256 high = uint256();
 
 	unsigned int t = a[7];
 
 	// a[7] * b (low)
-	for(int i = 7; i >= 0; i--) {
+	for (int i = 7; i >= 0; i--)
+	{
 		c[i] = t * b[i];
 	}
 
@@ -251,8 +137,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(c[1], t, b[2], c[1]);
 	madc_hi_cc(c[0], t, b[1], c[0]);
 	madc_hi(high[7], t, b[0], high[7]);
-
-
 
 	// a[6] * b (low)
 	t = a[6];
@@ -298,8 +182,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(high[6], t, b[1], high[6]);
 	madc_hi(high[5], t, b[0], high[5]);
 
-
-
 	// a[4] * b (low)
 	t = a[4];
 	mad_lo_cc(c[4], t, b[7], c[4]);
@@ -321,8 +203,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(high[6], t, b[2], high[6]);
 	madc_hi_cc(high[5], t, b[1], high[5]);
 	madc_hi(high[4], t, b[0], high[4]);
-
-
 
 	// a[3] * b (low)
 	t = a[3];
@@ -346,8 +226,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(high[4], t, b[1], high[4]);
 	madc_hi(high[3], t, b[0], high[3]);
 
-
-
 	// a[2] * b (low)
 	t = a[2];
 	mad_lo_cc(c[2], t, b[7], c[2]);
@@ -369,8 +247,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(high[4], t, b[2], high[4]);
 	madc_hi_cc(high[3], t, b[1], high[3]);
 	madc_hi(high[2], t, b[0], high[2]);
-
-
 
 	// a[1] * b (low)
 	t = a[1];
@@ -394,8 +270,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(high[2], t, b[1], high[2]);
 	madc_hi(high[1], t, b[0], high[1]);
 
-
-
 	// a[0] * b (low)
 	t = a[0];
 	mad_lo_cc(c[0], t, b[7], c[0]);
@@ -418,8 +292,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(high[1], t, b[1], high[1]);
 	madc_hi(high[0], t, b[0], high[0]);
 
-
-
 	// At this point we have 16 32-bit words representing a 512-bit value
 	// high[0 ... 7] and c[0 ... 7]
 	const unsigned int s = 977;
@@ -427,7 +299,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	// Store high[6] and high[7] since they will be overwritten
 	unsigned int high7 = high[7];
 	unsigned int high6 = high[6];
-
 
 	// Take high 256 bits, multiply by 2^32, add to low 256 bits
 	// That is, take high[0 ... 7], shift it left 1 word and add it to c[0 ... 7]
@@ -440,7 +311,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	addc_cc(c[0], high[1], c[0]);
 	addc_cc(high[7], high[0], 0);
 	addc(high[6], 0, 0);
-
 
 	// Take high 256 bits, multiply by 977, add to low 256 bits
 	// That is, take high[0 ... 5], high6, high7, multiply by 977 and add to c[0 ... 7]
@@ -455,7 +325,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	addc_cc(high[7], high[7], 0);
 	addc(high[6], high[6], 0);
 
-
 	mad_hi_cc(c[6], high7, s, c[6]);
 	madc_hi_cc(c[5], high6, s, c[5]);
 	madc_hi_cc(c[4], high[5], s, c[4]);
@@ -465,7 +334,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	madc_hi_cc(c[0], high[1], s, c[0]);
 	madc_hi_cc(high[7], high[0], s, high[7]);
 	addc(high[6], high[6], 0);
-
 
 	// Repeat the same steps, but this time we only need to handle high[6] and high[7]
 	high7 = high[7];
@@ -480,7 +348,6 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	addc_cc(c[1], c[1], 0);
 	addc_cc(c[0], c[0], 0);
 	addc(high[7], 0, 0);
-
 
 	// Take the high 64 bits, multiply by 977 and add to the low 256 bits
 	mad_lo_cc(c[7], high7, s, c[7]);
@@ -502,91 +369,75 @@ __device__ static void mulModP(const unsigned int a[8], const unsigned int b[8],
 	addc_cc(c[0], c[0], 0);
 	addc(high[7], high[7], 0);
 
-
 	bool overflow = high[7] != 0;
 
 	unsigned int borrow = sub(c, _P, c);
 
-	if(overflow) {
-		if(!borrow) {
+	if (overflow)
+	{
+		if (!borrow)
+		{
 			sub(c, _P, c);
 		}
-	} else {
-		if(borrow) {
+	}
+	else
+	{
+		if (borrow)
+		{
 			add(c, _P, c);
 		}
 	}
 }
 
+__device__ __forceinline__ static void mulModP(const uint256 &a, uint256 &c)
+{
+	uint256 tmp;
+	mulModP(a, c, tmp);
 
-/**
- * Square mod P
- * b = a * a
- */
-__device__ static void squareModP(const unsigned int a[8], unsigned int b[8])
+	c = tmp;
+}
+
+__device__ __forceinline__ static void squareModP(const uint256 &a, uint256 &b)
 {
 	mulModP(a, a, b);
 }
 
-/**
- * Square mod P
- * x = x * x
- */
-__device__ static void squareModP(unsigned int x[8])
+__device__ __forceinline__ static void squareModP(uint256 &x)
 {
-	unsigned int tmp[8];
+	uint256 tmp;
 	squareModP(x, tmp);
-	copyBigInt(tmp, x);
+	x = tmp;
 }
 
-/**
- * Multiply mod P
- * c = a * c
- */
-__device__ static void mulModP(const unsigned int a[8], unsigned int c[8])
+__device__ __forceinline__ static void invModP(uint256 &value)
 {
-	unsigned int tmp[8];
-	mulModP(a, c, tmp);
-
-	copyBigInt(tmp, c);
-}
-
-/**
- * Multiplicative inverse mod P using Fermat's method of x^(p-2) mod p and addition chains
- */
-__device__ static void invModP(unsigned int value[8])
-{
-	unsigned int x[8];
-
-	copyBigInt(value, x);
-
-	unsigned int y[8] = { 0, 0, 0, 0, 0, 0, 0, 1 };
+	uint256 x = value;
+	uint256 y = uint256(1);
 
 	// 0xd - 1101
 	mulModP(x, y);
 	squareModP(x);
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
 	mulModP(x, y);
 	squareModP(x);
 	mulModP(x, y);
 	squareModP(x);
-
 
 	// 0x2 - 0010
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
 	mulModP(x, y);
 	squareModP(x);
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
 
 	// 0xc = 0x1100
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
 	mulModP(x, y);
 	squareModP(x);
@@ -594,13 +445,14 @@ __device__ static void invModP(unsigned int value[8])
 	squareModP(x);
 
 	// 0xfffff
-	for(int i = 0; i < 20; i++) {
+	for (int i = 0; i < 20; i++)
+	{
 		mulModP(x, y);
 		squareModP(x);
 	}
 
 	// 0xe - 1110
-	//mulModP(x, y);
+	// mulModP(x, y);
 	squareModP(x);
 	mulModP(x, y);
 	squareModP(x);
@@ -610,193 +462,264 @@ __device__ static void invModP(unsigned int value[8])
 	squareModP(x);
 
 	// 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffff
-	for(int i = 0; i < 219; i++) {
+	for (int i = 0; i < 219; i++)
+	{
 		mulModP(x, y);
 		squareModP(x);
 	}
 	mulModP(x, y);
 
-	copyBigInt(y, value);
+	value = y;
 }
 
-__device__ static void invModP(const unsigned int *value, unsigned int *inverse)
+__device__ static void beginBatchAdd(const uint256 &px, const uint256 &x, heap &heapC, int i, int batchIdx, uint256 &inverse)
 {
-	copyBigInt(value, inverse);
+	uint256 t;
 
-	invModP(inverse);
-}
-
-__device__ static void negModP(const unsigned int *value, unsigned int *negative)
-{
-	sub_cc(negative[0], _P[0], value[0]);
-	subc_cc(negative[1], _P[1], value[1]);
-	subc_cc(negative[2], _P[2], value[2]);
-	subc_cc(negative[3], _P[3], value[3]);
-	subc_cc(negative[4], _P[4], value[4]);
-	subc_cc(negative[5], _P[5], value[5]);
-	subc_cc(negative[6], _P[6], value[6]);
-	subc(negative[7], _P[7], value[7]);
-}
-
-
-__device__ __forceinline__ static void beginBatchAdd(const unsigned int *px, const unsigned int *x, unsigned int *chain, int i, int batchIdx, unsigned int inverse[8])
-{
-	// x = Gx - x
-	unsigned int t[8];
 	subModP(px, x, t);
 
 	// Keep a chain of multiples of the diff, i.e. c[0] = diff0, c[1] = diff0 * diff1,
 	// c[2] = diff2 * diff1 * diff0, etc
 	mulModP(t, inverse);
 
-	writeInt(chain, batchIdx, inverse);
+	heapC[batchIdx] = inverse;
 }
 
-
-__device__ __forceinline__ static void beginBatchAddWithDouble(const unsigned int *px, const unsigned int *py, unsigned int *xPtr, unsigned int *chain, int i, int batchIdx, unsigned int inverse[8])
+__device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 &py, const uint256 &x, heap &heapC, int i, int batchIdx, uint256 &inverse)
 {
-	unsigned int x[8];
-	readInt(xPtr, i, x);
+	uint256 t;
 
-	if(equal(px, x)) {
-		addModP(py, py, x);
-	} else {
+	if (x.equals(px))
+		addModP(py, py, t);
+	else
 		// x = Gx - x
-		subModP(px, x, x);
-	}
+		subModP(px, x, t);
 
 	// Keep a chain of multiples of the diff, i.e. c[0] = diff0, c[1] = diff0 * diff1,
 	// c[2] = diff2 * diff1 * diff0, etc
-	mulModP(x, inverse);
+	mulModP(t, inverse);
 
-	writeInt(chain, batchIdx, inverse);
+	heapC[batchIdx] = inverse;
 }
 
-__device__ static void completeBatchAddWithDouble(const unsigned int *px, const unsigned int *py, const unsigned int *xPtr, const unsigned int *yPtr, int i, int batchIdx, unsigned int *chain, unsigned int *inverse, unsigned int newX[8], unsigned int newY[8])
+__device__ __forceinline__ static void doBatchInverse(uint256 &inverse)
 {
-	unsigned int s[8];
-	unsigned int x[8];
-	unsigned int y[8];
+	invModP(inverse);
+}
 
-	readInt(xPtr, i, x);
-	readInt(yPtr, i, y);
+__device__ static void completeBatchAdd(const uint256 &px, const uint256 &py, heap &heapX, heap &heapY, int i, int batchIdx, heap &heapC, uint256 &inverse)
+{
+	uint256 rise, s, s2, k, newX, newY, x = heapX[i];
 
-	if(batchIdx >= 1) {
-		unsigned int c[8];
+	if (batchIdx >= 1)
+	{
+		const uint256 c = heapC[batchIdx - 1];
+		mulModP(inverse, c, s);
 
-		readInt(chain, batchIdx - 1, c);
+		uint256 diff;
+		subModP(px, x, diff);
+		mulModP(diff, inverse);
+	}
+	else
+	{
+		s = inverse;
+	}
+
+	uint256 y = heapY[i];
+
+	subModP(py, y, rise);
+
+	mulModP(rise, s);
+
+	// Rx = s^2 - Gx - Qx
+	mulModP(s, s, s2);
+	subModP(s2, px, newX);
+	subModP(newX, x, newX);
+
+	heapX[i] = newX;
+
+	// Ry = s(px - rx) - py
+	subModP(px, newX, k);
+	mulModP(s, k, newY);
+	subModP(newY, py, newY);
+
+	heapY[i] = newY;
+}
+
+__device__ static void completeBatchAddWithDouble(const uint256 &px, const uint256 &py, heap &heapX, heap &heapY, heap &heapC, int i, int batchIdx, uint256 &inverse)
+{
+	uint256 s, newX, newY, x = heapX[i];
+
+	if (batchIdx >= 1)
+	{
+		uint256 diff;
+		const uint256 c = heapC[batchIdx - 1];
 
 		mulModP(inverse, c, s);
 
-		unsigned int diff[8];
-		if(equal(px, x)) {
+		if (x.equals(px))
+		{
 			addModP(py, py, diff);
-		} else {
+		}
+		else
+		{
 			subModP(px, x, diff);
 		}
 
 		mulModP(diff, inverse);
-	} else {
-		copyBigInt(inverse, s);
+	}
+	else
+	{
+		s = inverse;
 	}
 
+	uint256 s2, k;
 
-	if(equal(px, x)) {
+	if (x.equals(px))
+	{
 		// currently s = 1 / 2y
 
-		unsigned int x2[8];
-		unsigned int tx2[8];
+		uint256 x2, tx2;
 
 		// 3x^2
 		mulModP(x, x, x2);
 		addModP(x2, x2, tx2);
 		addModP(x2, tx2, tx2);
 
-
 		// s = 3x^2 * 1/2y
 		mulModP(tx2, s);
 
 		// s^2
-		unsigned int s2[8];
 		mulModP(s, s, s2);
 
 		// Rx = s^2 - 2px
 		subModP(s2, x, newX);
 		subModP(newX, x, newX);
 
+		heapX[i] = newX;
+
 		// Ry = s(px - rx) - py
-		unsigned int k[8];
 		subModP(px, newX, k);
 		mulModP(s, k, newY);
 		subModP(newY, py, newY);
 
-	} else {
+		heapY[i] = newY;
+	}
+	else
+	{
+		uint256 rise, y = heapY[i];
 
-		unsigned int rise[8];
 		subModP(py, y, rise);
 
 		mulModP(rise, s);
 
 		// Rx = s^2 - Gx - Qx
-		unsigned int s2[8];
 		mulModP(s, s, s2);
 
 		subModP(s2, px, newX);
 		subModP(newX, x, newX);
 
+		heapX[i] = newX;
+
 		// Ry = s(px - rx) - py
-		unsigned int k[8];
 		subModP(px, newX, k);
 		mulModP(s, k, newY);
 		subModP(newY, py, newY);
+
+		heapY[i] = newY;
 	}
 }
 
-__device__ static void completeBatchAdd(const unsigned int *px, const unsigned int *py, unsigned int *xPtr, unsigned int *yPtr, int i, int batchIdx, unsigned int *chain, unsigned int *inverse, unsigned int newX[8], unsigned int newY[8])
+/**
+ * MEMORY OPTIMIZATION: Helper functions for computing private keys on-the-fly
+ * Instead of storing millions of private keys in GPU memory, we compute them dynamically
+ */
+
+/**
+ * Shift a 256-bit number left by specified number of bits
+ */
+__device__ __forceinline__ static void shiftLeft(const uint256 &src, int bits, uint256 &dst)
 {
-	unsigned int s[8];
-	unsigned int x[8];
+	dst.clear();
 
-	readInt(xPtr, i, x);
-
-	if(batchIdx >= 1) {
-		unsigned int c[8];
-
-		readInt(chain, batchIdx - 1, c);
-		mulModP(inverse, c, s);
-
-		unsigned int diff[8];
-		subModP(px, x, diff);
-		mulModP(diff, inverse);
-	} else {
-		copyBigInt(inverse, s);
+	if (bits == 0)
+	{
+		dst = src;
+		return;
 	}
 
-	unsigned int y[8];
-	readInt(yPtr, i, y);
+	// Handle large shifts efficiently
+	if (bits >= 256)
+	{
+		return;
+	}
 
-	unsigned int rise[8];
-	subModP(py, y, rise);
+	int wordShift = bits / 32; // Number of 32-bit words to shift
+	int bitShift = bits % 32;  // Remaining bits to shift within word
 
-	mulModP(rise, s);
-
-	// Rx = s^2 - Gx - Qx
-	unsigned int s2[8];
-	mulModP(s, s, s2);
-	subModP(s2, px, newX);
-	subModP(newX, x, newX);
-
-	// Ry = s(px - rx) - py
-	unsigned int k[8];
-	subModP(px, newX, k);
-	mulModP(s, k, newY);
-	subModP(newY, py, newY);
+	if (bitShift == 0)
+	{
+		// Word-aligned shift - simple copy
+		for (int i = wordShift; i < 8; i++)
+		{
+			dst[i] = src[i - wordShift];
+		}
+	}
+	else
+	{
+		// Bit-level shift - need to handle carry between words
+		for (int i = wordShift; i < 8; i++)
+		{
+			if (i - wordShift < 8)
+			{
+				dst[i] = src[i - wordShift] << bitShift;
+			}
+			// Handle carry from previous word
+			if (i - wordShift - 1 >= 0 && i - wordShift - 1 < 8)
+			{
+				dst[i] |= src[i - wordShift - 1] >> (32 - bitShift);
+			}
+		}
+	}
 }
 
-
-__device__ __forceinline__ static void doBatchInverse(unsigned int inverse[8])
+/**
+ * Compute offset for private key calculation: offset = stride * linearIndex
+ * This replaces storing millions of precomputed private keys with on-the-fly calculation
+ */
+__device__ __forceinline__ static void computeOffset(const uint256 &strideValue, unsigned int linearIndex, uint256 &offset)
 {
-	invModP(inverse);
+	offset.clear();
+
+	// Special case: index 0 -> offset 0
+	if (linearIndex == 0)
+	{
+		return;
+	}
+
+	// Special case: index 1 -> offset = stride
+	if (linearIndex == 1)
+	{
+		offset = strideValue;
+		return;
+	}
+
+	// OPTIMIZATION: Allocate temp buffers once outside the loop
+	uint256 temp, newOffset;
+
+	// Process each bit of linearIndex
+	for (int bit = 0; bit < 32 && (linearIndex >> bit); bit++)
+	{
+		if (linearIndex & (1 << bit))
+		{
+			// temp = strideValue << bit
+			shiftLeft(strideValue, bit, temp);
+
+			// offset += temp (reuse allocated buffers)
+			add(offset, temp, newOffset);
+			offset = newOffset;
+		}
+	}
 }
 
 #endif

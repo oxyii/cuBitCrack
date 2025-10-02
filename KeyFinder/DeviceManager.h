@@ -22,7 +22,7 @@ class DeviceType {
 public:
     enum {
         CUDA = 0,
-        OpenCL
+        //OpenCL
     };
 };
 
