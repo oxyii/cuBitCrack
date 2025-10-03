@@ -7,6 +7,16 @@ The original README can be found [here](https://github.com/brichard19/BitCrack).
 OpenCL has been completely removed.
 CUDA builds by default without specifying the `BUILD_CUDA` environment variable.
 
+### Memory Usage Optimization
+
+Completely redesigned initialization.
+In the original version, keys were created on the host and copied to GPU, then points were formed from these keys.
+After point formation, keys were cleared from GPU, leaving more than 25% of memory unused.
+
+Now a single key is formed on the host.
+GPU calculates the required key offset for its thread on-the-fly and forms its own point.
+Result - ability to use almost all memory.
+
 ### Performance Optimization
 
 Used coalesced memory access patterns, which significantly improved performance without breaking the original logic.
@@ -19,15 +29,9 @@ Actually, measurements showed that the computational potential is much higher.
 Specifically, RTX 4060 is capable of "adding" up to 1500 MKey/s.
 The problem is in the memory bus bandwidth.
 
-### Memory Usage Optimization
+RTX 4090: `-b 1950 -t 128 -p 1024` - `3520+ MKey/s` (`255,590,400 starting point`, memory `23797 / 24080MB`).
 
-Completely redesigned initialization.
-In the original version, keys were created on the host and copied to GPU, then points were formed from these keys.
-After point formation, keys were cleared from GPU, leaving more than 25% of memory unused.
-
-Now a single key is formed on the host.
-GPU calculates the required key offset for its thread on-the-fly and forms its own point.
-Result - ability to use almost all memory.
+**WIP** Attempts to optimize memory usage are ongoing.
 
 ### Cosmetic Improvements
 
