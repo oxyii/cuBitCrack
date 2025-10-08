@@ -292,3 +292,5 @@ TestData/
 .vscode
 lib
 *.bin
+
+test
