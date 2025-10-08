@@ -489,7 +489,7 @@ __device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 
 {
 	uint256 t;
 
-	if (x.equals(px))
+	if (px.equals(x))
 		addModP(py, py, t);
 	else
 		// x = Gx - x
@@ -557,7 +557,7 @@ __device__ static void completeBatchAddWithDouble(const uint256 &px, const uint2
 
 		mulModP(inverse, c, s);
 
-		if (x.equals(px))
+		if (px.equals(x))
 		{
 			addModP(py, py, diff);
 		}
@@ -575,7 +575,7 @@ __device__ static void completeBatchAddWithDouble(const uint256 &px, const uint2
 
 	uint256 s2, k;
 
-	if (x.equals(px))
+	if (px.equals(x))
 	{
 		// currently s = 1 / 2y
 

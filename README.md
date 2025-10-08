@@ -31,8 +31,6 @@ The problem is in the memory bus bandwidth.
 
 RTX 4090: `-b 1950 -t 128 -p 1024` - `3520+ MKey/s` (`255,590,400 starting point`, memory `23797 / 24080MB`).
 
-**WIP** Attempts to optimize memory usage are ongoing.
-
 ### Cosmetic Improvements
 
 - Added WIF format to output.
