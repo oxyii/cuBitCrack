@@ -2,12 +2,13 @@
 #define _EC_CUH
 
 #include <cuda_runtime.h>
-#include "uint256.h"
 
 namespace ec {
-	__device__ uint256 *getXPtr();
+	__device__ uint4 *getXLowPtr();
+	__device__ uint4 *getXHighPtr();
 
-	__device__ uint256 *getYPtr();
+	__device__ uint4 *getYLowPtr();
+	__device__ uint4 *getYHighPtr();
 }
 
 #endif

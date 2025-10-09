@@ -134,7 +134,7 @@ __device__ void round(unsigned int a, unsigned int b, unsigned int c, unsigned i
 	h += s + MAJ(a, b, c) + (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22));
 }
 
-__device__ void sha256PublicKey(const uint256 &x, const uint256 &y, uint256 &digest)
+__device__ void sha256PublicKey(const uint256_buf &x, const uint256_buf &y, uint256 &digest)
 {
 	uint256 w1, w2, j = _IV;
 
@@ -419,7 +419,7 @@ __device__ void sha256PublicKey(const uint256 &x, const uint256 &y, uint256 &dig
 	digest[7] = tmp[7] + j[7];
 }
 
-__device__ void sha256PublicKeyCompressed(const uint256 &x, unsigned int yParity, uint256 &digest)
+__device__ void sha256PublicKeyCompressed(const uint256_buf &x, unsigned int yParity, uint256 &digest)
 {
 	uint256 w1, w2, j = _IV;
 

@@ -18,24 +18,38 @@
 #include "CudaAtomicList.cuh"
 #include "CudaDeviceKeys.cuh"
 
-__constant__ uint256 *_xPtr[1];
-__constant__ uint256 *_yPtr[1];
-__device__ uint256 *ec::getXPtr()
+__constant__ uint4 *_xLowPtr[1];
+__constant__ uint4 *_xHighPtr[1];
+__constant__ uint4 *_yLowPtr[1];
+__constant__ uint4 *_yHighPtr[1];
+__device__ uint4 *ec::getXLowPtr()
 {
-    return _xPtr[0];
+    return _xLowPtr[0];
 }
-__device__ uint256 *ec::getYPtr()
+__device__ uint4 *ec::getXHighPtr()
 {
-    return _yPtr[0];
+    return _xHighPtr[0];
 }
-uint256 *_devX;
-uint256 *_devY;
+__device__ uint4 *ec::getYLowPtr()
+{
+    return _yLowPtr[0];
+}
+__device__ uint4 *ec::getYHighPtr()
+{
+    return _yHighPtr[0];
+}
+uint4 *_devXLow;
+uint4 *_devXHigh;
+uint4 *_devYLow;
+uint4 *_devYHigh;
 
 __constant__ unsigned int _INC_X[8];
 __constant__ unsigned int _INC_Y[8];
 
-__constant__ uint256 *_CHAIN[1];
-static uint256 *_chainBufferPtr = NULL;
+__constant__ uint4 *_CHAIN_LOW[1];
+__constant__ uint4 *_CHAIN_HIGH[1];
+static uint4 *_chainBufferLowPtr = NULL;
+static uint4 *_chainBufferHighPtr = NULL;
 
 #define MAX_TARGETS_CONSTANT_MEM 16
 
@@ -88,27 +102,39 @@ __device__ void doRMD160FinalRound(const unsigned int hIn[5], unsigned int hOut[
  */
 cudaError_t allocateChainBuf(unsigned int count)
 {
-    cudaError_t err = cudaMalloc(&_chainBufferPtr, count * sizeof(uint256));
+    cudaError_t err = cudaMalloc(&_chainBufferLowPtr, count * sizeof(uint4));
     if (err)
     {
         return err;
     }
-
-    err = cudaMemcpyToSymbol(_CHAIN, &_chainBufferPtr, sizeof(uint256 *));
+    err = cudaMalloc(&_chainBufferHighPtr, count * sizeof(uint4));
     if (err)
     {
-        cudaFree(_chainBufferPtr);
+        cudaFree(_chainBufferLowPtr);
+        return err;
     }
 
-    return err;
+    err = cudaMemcpyToSymbol(_CHAIN_LOW, &_chainBufferLowPtr, sizeof(uint4 *));
+    if (err)
+    {
+        cudaFree(_chainBufferLowPtr);
+        cudaFree(_chainBufferHighPtr);
+    }
+
+    return cudaMemcpyToSymbol(_CHAIN_HIGH, &_chainBufferHighPtr, sizeof(uint4 *));
 }
 
 void cleanupChainBuf()
 {
-    if (_chainBufferPtr != NULL)
+    if (_chainBufferLowPtr != NULL)
     {
-        cudaFree(_chainBufferPtr);
-        _chainBufferPtr = NULL;
+        cudaFree(_chainBufferLowPtr);
+        _chainBufferLowPtr = NULL;
+    }
+    if (_chainBufferHighPtr != NULL)
+    {
+        cudaFree(_chainBufferHighPtr);
+        _chainBufferHighPtr = NULL;
     }
 }
 
@@ -173,7 +199,12 @@ cudaError_t CudaHashLookup::setTargetConstantMemory(const std::vector<struct has
 cudaError_t CudaKeySearchDevice::initializePublicKeys(size_t count)
 {
     // Allocate X array
-    cudaError_t err = cudaMalloc(&_devX, sizeof(uint256) * count);
+    cudaError_t err = cudaMalloc(&_devXLow, sizeof(uint4) * count);
+    if (err)
+    {
+        return err;
+    }
+    err = cudaMalloc(&_devXHigh, sizeof(uint4) * count);
     if (err)
     {
         return err;
@@ -181,44 +212,72 @@ cudaError_t CudaKeySearchDevice::initializePublicKeys(size_t count)
 
     // Clear X array
 
-    err = cudaMemset(_devX, -1, sizeof(uint256) * count);
+    err = cudaMemset(_devXLow, -1, sizeof(uint4) * count);
+    if (err)
+    {
+        return err;
+    }
+    err = cudaMemset(_devXHigh, -1, sizeof(uint4) * count);
     if (err)
     {
         return err;
     }
 
     // Allocate Y array
-    err = cudaMalloc(&_devY, sizeof(uint256) * count);
+    err = cudaMalloc(&_devYLow, sizeof(uint4) * count);
+    if (err)
+    {
+        return err;
+    }
+    err = cudaMalloc(&_devYHigh, sizeof(uint4) * count);
     if (err)
     {
         return err;
     }
 
     // Clear Y array
-    err = cudaMemset(_devY, -1, sizeof(uint256) * count);
+    err = cudaMemset(_devYLow, -1, sizeof(uint4) * count);
+    if (err)
+    {
+        return err;
+    }
+    err = cudaMemset(_devYHigh, -1, sizeof(uint4) * count);
     if (err)
     {
         return err;
     }
 
-    err = cudaMemcpyToSymbol(_xPtr, &_devX, sizeof(uint256 *));
+    err = cudaMemcpyToSymbol(_xLowPtr, &_devXLow, sizeof(uint4 *));
+    if (err)
+    {
+        return err;
+    }
+    err = cudaMemcpyToSymbol(_xHighPtr, &_devXHigh, sizeof(uint4 *));
     if (err)
     {
         return err;
     }
 
-    err = cudaMemcpyToSymbol(_yPtr, &_devY, sizeof(uint256 *));
+    err = cudaMemcpyToSymbol(_yLowPtr, &_devYLow, sizeof(uint4 *));
+    if (err)
+    {
+        return err;
+    }
 
-    return err;
+    return cudaMemcpyToSymbol(_yHighPtr, &_devYHigh, sizeof(uint4 *));
 }
 
 void CudaKeySearchDevice::clearPublicKeys()
 {
-    cudaFree(_devX);
-    cudaFree(_devY);
+    cudaFree(_devXLow);
+    cudaFree(_devXHigh);
+    cudaFree(_devYLow);
+    cudaFree(_devYHigh);
 
-    _devX = NULL;
-    _devY = NULL;
+    _devXLow = NULL;
+    _devXHigh = NULL;
+    _devYLow = NULL;
+    _devYHigh = NULL;
 }
 
 /**
@@ -401,7 +460,7 @@ void CudaHashLookup::cleanup()
     }
 }
 
-__device__ void setResultFound(const int idx, const bool compressed, const uint256 &x, const uint256 &y, unsigned int digest[5])
+__device__ void setResultFound(const int idx, const bool compressed, const uint256_buf &x, const uint256_buf &y, unsigned int digest[5])
 {
     CudaDeviceResult r;
 
@@ -492,7 +551,7 @@ __device__ bool checkHash(const unsigned int hash[5])
 }
 
 template <int COMPRESSION>
-__device__ void verify(const uint256 &x, const uint256 &y, const int iteration)
+__device__ void verify(const uint256_buf &x, const uint256_buf &y, const int iteration)
 {
     if constexpr (COMPRESSION == PointCompressionType::UNCOMPRESSED || COMPRESSION == PointCompressionType::BOTH)
     {
@@ -526,23 +585,23 @@ __device__ void verify(const uint256 &x, const uint256 &y, const int iteration)
 template <bool USE_DOUBLE, int COMPRESSION>
 __global__ void doIteration(unsigned int pointsPerThread)
 {
-    heap heapX(_xPtr[0]);
-    heap heapY(_yPtr[0]);
-    heap heapC(_CHAIN[0]);
+    heap_buf heapX(_xLowPtr[0], _xHighPtr[0], nullptr);
+    heap_buf heapY(_yLowPtr[0], _yHighPtr[0], nullptr);
+    heap_buf heapC(_CHAIN_LOW[0], _CHAIN_HIGH[0], nullptr);
 
     // Multiply together all (_Gx - x) and then invert
     uint256 inverse = uint256(1);
 
     for (int i = 0; i < pointsPerThread; i++)
     {
-        uint256 x = heapX[i];
+        uint256_buf x = heapX[i];
 
         verify<COMPRESSION>(x, heapY[i], i);
 
         if constexpr (USE_DOUBLE)
             beginBatchAddWithDouble(_INC_X, _INC_Y, x, heapC, i, i, inverse);
         else
-            beginBatchAdd(_INC_X, x, heapC, i, i, inverse);
+            beginBatchAdd(_INC_X, x, heapC, i, inverse);
     }
 
     doBatchInverse(inverse);
@@ -551,8 +610,7 @@ __global__ void doIteration(unsigned int pointsPerThread)
         if constexpr (USE_DOUBLE)
             completeBatchAddWithDouble(_INC_X, _INC_Y, heapX, heapY, heapC, i, i, inverse);
         else
-            completeBatchAdd(_INC_X, _INC_Y, heapX, heapY, i, i, heapC, inverse);
-
+            completeBatchAdd(_INC_X, _INC_Y, heapX, heapY, i, heapC, inverse);
 }
 
 template __global__ void doIteration<false, PointCompressionType::COMPRESSED>(unsigned int pointsPerThread);
@@ -568,7 +626,7 @@ template __global__ void doIteration<true, PointCompressionType::BOTH>(unsigned 
  */
 void keyFinderKernel(unsigned int blocks, unsigned int threads, unsigned int points, bool useDouble, int compression)
 {
-    //doIteration<false, PointCompressionType::COMPRESSED><<<blocks, threads>>>(points);
+    // doIteration<false, PointCompressionType::COMPRESSED><<<blocks, threads>>>(points);
     ///*
     if (!useDouble)
     {

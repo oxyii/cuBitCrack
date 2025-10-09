@@ -188,8 +188,8 @@ cudaError_t CudaDeviceKeys::doStep()
 
 __global__ void multiplyStepKernel(const uint256 *basePrivateKey, const uint256 *stride, unsigned int pointsPerThread, unsigned int step, uint256 *chain, const uint256 *gxPtr, const uint256 *gyPtr)
 {
-	heap heapX(ec::getXPtr());
-	heap heapY(ec::getYPtr());
+	heap_buf heapX(ec::getXLowPtr(), ec::getXHighPtr(), nullptr);
+	heap_buf heapY(ec::getYLowPtr(), ec::getYHighPtr(), nullptr);
 	heap heapC(chain);
 
 	uint256 gx = gxPtr[step];
@@ -212,7 +212,7 @@ __global__ void multiplyStepKernel(const uint256 *basePrivateKey, const uint256 
 
 		unsigned int bit = p[7 - step / 32] & 1 << ((step % 32));
 
-		uint256 x = heapX[i];
+		uint256_buf x = heapX[i];
 
 		if (bit != 0)
 		{
@@ -242,8 +242,8 @@ __global__ void multiplyStepKernel(const uint256 *basePrivateKey, const uint256 
 			}
 			else
 			{
-				heapX[i] = gx;
-				heapY[i] = gy;
+				heapX.set(i, gx);
+				heapY.set(i, gy);
 			}
 		}
 	}

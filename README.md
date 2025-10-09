@@ -22,14 +22,13 @@ Result - ability to use almost all memory.
 Used coalesced memory access patterns, which significantly improved performance without breaking the original logic.
 
 For example: A modest RTX 4060 on the original build achieved `750-770 MKey/s`.
-- In this build - `950+ MKey/s` with `-b 640 -t 128 -p 1024` (`83,886,080 starting points`, memory fully utilized at 100%).
-- Found even more optimal parameters for RTX 4060... something like `-b 240 -t 256 -p 1024` (`62,914,560 starting points`, memory `5878 / 7805MB`).
+- In this build - `970+ MKey/s` with `-b 288 -t 256 -p 1024` or `-b 576 -t 128 -p 1024` (`75,497,472 starting points`, memory `7030 / 7805MB`).
 
 Actually, measurements showed that the computational potential is much higher.
 Specifically, RTX 4060 is capable of "adding" up to 1500 MKey/s.
 The problem is in the memory bus bandwidth.
 
-RTX 4090: `-b 1950 -t 128 -p 1024` - `3520+ MKey/s` (`255,590,400 starting point`, memory `23797 / 24080MB`).
+RTX 4090: `-b 896 -t 256 -p 1024` - `3630+ MKey/s` (`234,881,024 starting point`, memory `21901 / 24080MB`).
 
 ### Cosmetic Improvements
 
