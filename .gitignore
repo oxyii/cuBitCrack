@@ -293,4 +293,5 @@ TestData/
 lib
 *.bin
 
+prof
 test

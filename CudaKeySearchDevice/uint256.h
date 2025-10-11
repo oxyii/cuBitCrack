@@ -23,7 +23,7 @@ public:
     };
 
     // ===== CONSTRUCTORS =====
-    __host__ __device__ __forceinline__ uint256() : low{0, 0, 0, 0}, high{0, 0, 0, 0} {}
+    uint256() = default;
 
     __host__ __device__ __forceinline__ uint256(uint32_t val) : low{0, 0, 0, 0}, high{0, 0, 0, val} {}
 
@@ -98,6 +98,30 @@ public:
         return true;
     }
 
+    __device__ __forceinline__ bool equals(const uint256 &other) const
+    {
+        if (high.x != other.high.x)
+            return false;
+        if (high.y != other.high.y)
+            return false;
+        if (high.z != other.high.z)
+            return false;
+        if (high.w != other.high.w)
+            return false;
+
+        // Then compare least significant words
+        if (low.x != other.low.x)
+            return false;
+        if (low.y != other.low.y)
+            return false;
+        if (low.z != other.low.z)
+            return false;
+        if (low.w != other.low.w)
+            return false;
+
+        return true;
+    }
+
     // ===== UTILITY METHODS =====
     __device__ __forceinline__ void clear()
     {
@@ -106,6 +130,30 @@ public:
     }
 
     // ===== STATIC METHODS =====
+    __device__ __forceinline__ bool isInfinity() const
+    {
+        if (high.x != 0xFFFFFFFFu)
+            return false;
+        if (high.y != 0xFFFFFFFFu)
+            return false;
+        if (high.z != 0xFFFFFFFFu)
+            return false;
+        if (high.w != 0xFFFFFFFFu)
+            return false;
+
+        // Then compare least significant words
+        if (low.x != 0xFFFFFFFFu)
+            return false;
+        if (low.y != 0xFFFFFFFFu)
+            return false;
+        if (low.z != 0xFFFFFFFFu)
+            return false;
+        if (low.w != 0xFFFFFFFFu)
+            return false;
+
+        return true;
+    }
+
     __device__ __forceinline__ static uint256 max()
     {
         uint256 result;
@@ -127,6 +175,14 @@ public:
     __device__ __forceinline__ uint256_buf() : low{nullptr}, high{nullptr} {}
 
     __device__ __forceinline__ uint256_buf(uint4 *low_ptr, uint4 *high_ptr) : low{low_ptr}, high{high_ptr} {}
+
+    __device__ __forceinline__ uint256 toUint256() const
+    {
+        uint256 result;
+        result.low = *low;
+        result.high = *high;
+        return result;
+    }
 
     __device__ __forceinline__ uint32_t &operator[](int index)
     {

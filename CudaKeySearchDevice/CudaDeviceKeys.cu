@@ -212,7 +212,7 @@ __global__ void multiplyStepKernel(const uint256 *basePrivateKey, const uint256 
 
 		unsigned int bit = p[7 - step / 32] & 1 << ((step % 32));
 
-		uint256_buf x = heapX[i];
+		uint256 x = heapX[i].toUint256();
 
 		if (bit != 0)
 		{

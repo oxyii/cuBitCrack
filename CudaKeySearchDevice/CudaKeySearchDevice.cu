@@ -460,7 +460,7 @@ void CudaHashLookup::cleanup()
     }
 }
 
-__device__ void setResultFound(const int idx, const bool compressed, const uint256_buf &x, const uint256_buf &y, unsigned int digest[5])
+__device__ void setResultFound(const int idx, const bool compressed, const uint256 &x, const uint256_buf &y, unsigned int digest[5])
 {
     CudaDeviceResult r;
 
@@ -551,7 +551,7 @@ __device__ bool checkHash(const unsigned int hash[5])
 }
 
 template <int COMPRESSION>
-__device__ void verify(const uint256_buf &x, const uint256_buf &y, const int iteration)
+__device__ void verify(const uint256 &x, const uint256_buf &y, const int iteration)
 {
     if constexpr (COMPRESSION == PointCompressionType::UNCOMPRESSED || COMPRESSION == PointCompressionType::BOTH)
     {
@@ -572,6 +572,7 @@ __device__ void verify(const uint256_buf &x, const uint256_buf &y, const int ite
         unsigned int digest[5];
         {
             uint256 hash;
+            //uint4 yPart = *y.high; //yPart.w
             sha256PublicKeyCompressed(x, y[7], hash);
             hash.swapEndian();
             ripemd160sha256NoFinal(hash, digest);
@@ -594,7 +595,7 @@ __global__ void doIteration(unsigned int pointsPerThread)
 
     for (int i = 0; i < pointsPerThread; i++)
     {
-        uint256_buf x = heapX[i];
+        uint256 x = heapX[i].toUint256();
 
         verify<COMPRESSION>(x, heapY[i], i);
 

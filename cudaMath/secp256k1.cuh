@@ -89,877 +89,139 @@ __device__ __forceinline__ static void addModP(const uint256 &a, const uint256 &
 	}
 }
 
-__device__ __forceinline__ static void subModP(const uint256 &a, const uint256 &b, uint256 &c)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+__device__ __forceinline__ static void toInt64(const uint256 &a, uint64_t *out)
 {
-	sub_cc(c[7], a[7], b[7]);
-	subc_cc(c[6], a[6], b[6]);
-	subc_cc(c[5], a[5], b[5]);
-	subc_cc(c[4], a[4], b[4]);
-	subc_cc(c[3], a[3], b[3]);
-	subc_cc(c[2], a[2], b[2]);
-	subc_cc(c[1], a[1], b[1]);
-	subc_cc(c[0], a[0], b[0]);
-
-	unsigned int borrow = 0;
-	subc(borrow, 0, 0);
-
-	if (borrow)
-	{
-		add_cc(c[7], c[7], _P[7]);
-		addc_cc(c[6], c[6], _P[6]);
-		addc_cc(c[5], c[5], _P[5]);
-		addc_cc(c[4], c[4], _P[4]);
-		addc_cc(c[3], c[3], _P[3]);
-		addc_cc(c[2], c[2], _P[2]);
-		addc_cc(c[1], c[1], _P[1]);
-		addc(c[0], c[0], _P[0]);
-	}
+	out[0] = ((uint64_t)a[6] << 32) | (uint64_t)a[7];
+	out[1] = ((uint64_t)a[4] << 32) | (uint64_t)a[5];
+	out[2] = ((uint64_t)a[2] << 32) | (uint64_t)a[3];
+	out[3] = ((uint64_t)a[0] << 32) | (uint64_t)a[1];
 }
 
-__device__ __forceinline__ static void subModP(const uint256 &a, const uint256_buf &b, uint256 &c)
+__device__ __forceinline__ static void toInt32(const uint64_t *a, uint256 &out)
 {
-	sub_cc(c[7], a[7], b[7]);
-	subc_cc(c[6], a[6], b[6]);
-	subc_cc(c[5], a[5], b[5]);
-	subc_cc(c[4], a[4], b[4]);
-	subc_cc(c[3], a[3], b[3]);
-	subc_cc(c[2], a[2], b[2]);
-	subc_cc(c[1], a[1], b[1]);
-	subc_cc(c[0], a[0], b[0]);
+	out[7] = (unsigned int)(a[0] & 0xFFFFFFFFU);
+	out[6] = (unsigned int)(a[0] >> 32);
+	out[5] = (unsigned int)(a[1] & 0xFFFFFFFFU);
+	out[4] = (unsigned int)(a[1] >> 32);
+	out[3] = (unsigned int)(a[2] & 0xFFFFFFFFU);
+	out[2] = (unsigned int)(a[2] >> 32);
+	out[1] = (unsigned int)(a[3] & 0xFFFFFFFFU);
+	out[0] = (unsigned int)(a[3] >> 32);
+}
 
-	unsigned int borrow = 0;
-	subc(borrow, 0, 0);
+__device__ __forceinline__ static void ModSub256(uint64_t *r, uint64_t *a, uint64_t *b)
+{
 
-	if (borrow)
-	{
-		add_cc(c[7], c[7], _P[7]);
-		addc_cc(c[6], c[6], _P[6]);
-		addc_cc(c[5], c[5], _P[5]);
-		addc_cc(c[4], c[4], _P[4]);
-		addc_cc(c[3], c[3], _P[3]);
-		addc_cc(c[2], c[2], _P[2]);
-		addc_cc(c[1], c[1], _P[1]);
-		addc(c[0], c[0], _P[0]);
-	}
+	uint64_t t;
+	uint64_t T[4];
+	USUBO(r[0], a[0], b[0]);
+	USUBC(r[1], a[1], b[1]);
+	USUBC(r[2], a[2], b[2]);
+	USUBC(r[3], a[3], b[3]);
+	USUB(t, 0ULL, 0ULL);
+	T[0] = 0xFFFFFFFEFFFFFC2FULL & t;
+	T[1] = 0xFFFFFFFFFFFFFFFFULL & t;
+	T[2] = 0xFFFFFFFFFFFFFFFFULL & t;
+	T[3] = 0xFFFFFFFFFFFFFFFFULL & t;
+	UADDO1(r[0], T[0]);
+	UADDC1(r[1], T[1]);
+	UADDC1(r[2], T[2]);
+	UADD1(r[3], T[3]);
+}
+
+__device__ __forceinline__ static void subModP(const uint256 &a, const uint256 &b, uint256 &c)
+{
+	uint64_t A[4], B[4], R[4];
+
+	toInt64(a, A);
+	toInt64(b, B);
+
+	ModSub256(R, A, B);
+
+	toInt32(R, c);
+}
+
+__device__ __forceinline__ static void _ModMult(uint64_t *r, uint64_t *a, uint64_t *b)
+{
+
+	uint64_t r512[8];
+	uint64_t t[5];
+	uint64_t ah, al;
+
+	r512[5] = 0;
+	r512[6] = 0;
+	r512[7] = 0;
+
+	// 256*256 multiplier
+	UMult(r512, a, b[0]);
+	UMult(t, a, b[1]);
+	UADDO1(r512[1], t[0]);
+	UADDC1(r512[2], t[1]);
+	UADDC1(r512[3], t[2]);
+	UADDC1(r512[4], t[3]);
+	UADD1(r512[5], t[4]);
+	UMult(t, a, b[2]);
+	UADDO1(r512[2], t[0]);
+	UADDC1(r512[3], t[1]);
+	UADDC1(r512[4], t[2]);
+	UADDC1(r512[5], t[3]);
+	UADD1(r512[6], t[4]);
+	UMult(t, a, b[3]);
+	UADDO1(r512[3], t[0]);
+	UADDC1(r512[4], t[1]);
+	UADDC1(r512[5], t[2]);
+	UADDC1(r512[6], t[3]);
+	UADD1(r512[7], t[4]);
+
+	// Reduce from 512 to 320
+	UMult(t, (r512 + 4), 0x1000003D1ULL);
+	UADDO1(r512[0], t[0]);
+	UADDC1(r512[1], t[1]);
+	UADDC1(r512[2], t[2]);
+	UADDC1(r512[3], t[3]);
+
+	// Reduce from 320 to 256
+	UADD1(t[4], 0ULL);
+	UMULLO(al, t[4], 0x1000003D1ULL);
+	UMULHI(ah, t[4], 0x1000003D1ULL);
+	UADDO(r[0], r512[0], al);
+	UADDC(r[1], r512[1], ah);
+	UADDC(r[2], r512[2], 0ULL);
+	UADD(r[3], r512[3], 0ULL);
 }
 
 __device__ __forceinline__ static void mulModP(const uint256 &a, const uint256 &b, uint256 &c)
 {
-	uint256 high = uint256();
+	uint64_t A[4], B[4], R[4];
 
-	unsigned int t = a[7];
+	toInt64(a, A);
+	toInt64(b, B);
 
-	// a[7] * b (low)
-	for (int i = 7; i >= 0; i--)
-	{
-		c[i] = t * b[i];
-	}
+	_ModMult(R, A, B);
 
-	// a[7] * b (high)
-	mad_hi_cc(c[6], t, b[7], c[6]);
-	madc_hi_cc(c[5], t, b[6], c[5]);
-	madc_hi_cc(c[4], t, b[5], c[4]);
-	madc_hi_cc(c[3], t, b[4], c[3]);
-	madc_hi_cc(c[2], t, b[3], c[2]);
-	madc_hi_cc(c[1], t, b[2], c[1]);
-	madc_hi_cc(c[0], t, b[1], c[0]);
-	madc_hi(high[7], t, b[0], high[7]);
+	toInt32(R, c);
+}
 
-	// a[6] * b (low)
-	t = a[6];
-	mad_lo_cc(c[6], t, b[7], c[6]);
-	madc_lo_cc(c[5], t, b[6], c[5]);
-	madc_lo_cc(c[4], t, b[5], c[4]);
-	madc_lo_cc(c[3], t, b[4], c[3]);
-	madc_lo_cc(c[2], t, b[3], c[2]);
-	madc_lo_cc(c[1], t, b[2], c[1]);
-	madc_lo_cc(c[0], t, b[1], c[0]);
-	madc_lo_cc(high[7], t, b[0], high[7]);
-	addc(high[6], high[6], 0);
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	// a[6] * b (high)
-	mad_hi_cc(c[5], t, b[7], c[5]);
-	madc_hi_cc(c[4], t, b[6], c[4]);
-	madc_hi_cc(c[3], t, b[5], c[3]);
-	madc_hi_cc(c[2], t, b[4], c[2]);
-	madc_hi_cc(c[1], t, b[3], c[1]);
-	madc_hi_cc(c[0], t, b[2], c[0]);
-	madc_hi_cc(high[7], t, b[1], high[7]);
-	madc_hi(high[6], t, b[0], high[6]);
-
-	// a[5] * b (low)
-	t = a[5];
-	mad_lo_cc(c[5], t, b[7], c[5]);
-	madc_lo_cc(c[4], t, b[6], c[4]);
-	madc_lo_cc(c[3], t, b[5], c[3]);
-	madc_lo_cc(c[2], t, b[4], c[2]);
-	madc_lo_cc(c[1], t, b[3], c[1]);
-	madc_lo_cc(c[0], t, b[2], c[0]);
-	madc_lo_cc(high[7], t, b[1], high[7]);
-	madc_lo_cc(high[6], t, b[0], high[6]);
-	addc(high[5], high[5], 0);
-
-	// a[5] * b (high)
-	mad_hi_cc(c[4], t, b[7], c[4]);
-	madc_hi_cc(c[3], t, b[6], c[3]);
-	madc_hi_cc(c[2], t, b[5], c[2]);
-	madc_hi_cc(c[1], t, b[4], c[1]);
-	madc_hi_cc(c[0], t, b[3], c[0]);
-	madc_hi_cc(high[7], t, b[2], high[7]);
-	madc_hi_cc(high[6], t, b[1], high[6]);
-	madc_hi(high[5], t, b[0], high[5]);
-
-	// a[4] * b (low)
-	t = a[4];
-	mad_lo_cc(c[4], t, b[7], c[4]);
-	madc_lo_cc(c[3], t, b[6], c[3]);
-	madc_lo_cc(c[2], t, b[5], c[2]);
-	madc_lo_cc(c[1], t, b[4], c[1]);
-	madc_lo_cc(c[0], t, b[3], c[0]);
-	madc_lo_cc(high[7], t, b[2], high[7]);
-	madc_lo_cc(high[6], t, b[1], high[6]);
-	madc_lo_cc(high[5], t, b[0], high[5]);
-	addc(high[4], high[4], 0);
-
-	// a[4] * b (high)
-	mad_hi_cc(c[3], t, b[7], c[3]);
-	madc_hi_cc(c[2], t, b[6], c[2]);
-	madc_hi_cc(c[1], t, b[5], c[1]);
-	madc_hi_cc(c[0], t, b[4], c[0]);
-	madc_hi_cc(high[7], t, b[3], high[7]);
-	madc_hi_cc(high[6], t, b[2], high[6]);
-	madc_hi_cc(high[5], t, b[1], high[5]);
-	madc_hi(high[4], t, b[0], high[4]);
-
-	// a[3] * b (low)
-	t = a[3];
-	mad_lo_cc(c[3], t, b[7], c[3]);
-	madc_lo_cc(c[2], t, b[6], c[2]);
-	madc_lo_cc(c[1], t, b[5], c[1]);
-	madc_lo_cc(c[0], t, b[4], c[0]);
-	madc_lo_cc(high[7], t, b[3], high[7]);
-	madc_lo_cc(high[6], t, b[2], high[6]);
-	madc_lo_cc(high[5], t, b[1], high[5]);
-	madc_lo_cc(high[4], t, b[0], high[4]);
-	addc(high[3], high[3], 0);
-
-	// a[3] * b (high)
-	mad_hi_cc(c[2], t, b[7], c[2]);
-	madc_hi_cc(c[1], t, b[6], c[1]);
-	madc_hi_cc(c[0], t, b[5], c[0]);
-	madc_hi_cc(high[7], t, b[4], high[7]);
-	madc_hi_cc(high[6], t, b[3], high[6]);
-	madc_hi_cc(high[5], t, b[2], high[5]);
-	madc_hi_cc(high[4], t, b[1], high[4]);
-	madc_hi(high[3], t, b[0], high[3]);
-
-	// a[2] * b (low)
-	t = a[2];
-	mad_lo_cc(c[2], t, b[7], c[2]);
-	madc_lo_cc(c[1], t, b[6], c[1]);
-	madc_lo_cc(c[0], t, b[5], c[0]);
-	madc_lo_cc(high[7], t, b[4], high[7]);
-	madc_lo_cc(high[6], t, b[3], high[6]);
-	madc_lo_cc(high[5], t, b[2], high[5]);
-	madc_lo_cc(high[4], t, b[1], high[4]);
-	madc_lo_cc(high[3], t, b[0], high[3]);
-	addc(high[2], high[2], 0);
-
-	// a[2] * b (high)
-	mad_hi_cc(c[1], t, b[7], c[1]);
-	madc_hi_cc(c[0], t, b[6], c[0]);
-	madc_hi_cc(high[7], t, b[5], high[7]);
-	madc_hi_cc(high[6], t, b[4], high[6]);
-	madc_hi_cc(high[5], t, b[3], high[5]);
-	madc_hi_cc(high[4], t, b[2], high[4]);
-	madc_hi_cc(high[3], t, b[1], high[3]);
-	madc_hi(high[2], t, b[0], high[2]);
-
-	// a[1] * b (low)
-	t = a[1];
-	mad_lo_cc(c[1], t, b[7], c[1]);
-	madc_lo_cc(c[0], t, b[6], c[0]);
-	madc_lo_cc(high[7], t, b[5], high[7]);
-	madc_lo_cc(high[6], t, b[4], high[6]);
-	madc_lo_cc(high[5], t, b[3], high[5]);
-	madc_lo_cc(high[4], t, b[2], high[4]);
-	madc_lo_cc(high[3], t, b[1], high[3]);
-	madc_lo_cc(high[2], t, b[0], high[2]);
-	addc(high[1], high[1], 0);
-
-	// a[1] * b (high)
-	mad_hi_cc(c[0], t, b[7], c[0]);
-	madc_hi_cc(high[7], t, b[6], high[7]);
-	madc_hi_cc(high[6], t, b[5], high[6]);
-	madc_hi_cc(high[5], t, b[4], high[5]);
-	madc_hi_cc(high[4], t, b[3], high[4]);
-	madc_hi_cc(high[3], t, b[2], high[3]);
-	madc_hi_cc(high[2], t, b[1], high[2]);
-	madc_hi(high[1], t, b[0], high[1]);
-
-	// a[0] * b (low)
-	t = a[0];
-	mad_lo_cc(c[0], t, b[7], c[0]);
-	madc_lo_cc(high[7], t, b[6], high[7]);
-	madc_lo_cc(high[6], t, b[5], high[6]);
-	madc_lo_cc(high[5], t, b[4], high[5]);
-	madc_lo_cc(high[4], t, b[3], high[4]);
-	madc_lo_cc(high[3], t, b[2], high[3]);
-	madc_lo_cc(high[2], t, b[1], high[2]);
-	madc_lo_cc(high[1], t, b[0], high[1]);
-	addc(high[0], high[0], 0);
-
-	// a[0] * b (high)
-	mad_hi_cc(high[7], t, b[7], high[7]);
-	madc_hi_cc(high[6], t, b[6], high[6]);
-	madc_hi_cc(high[5], t, b[5], high[5]);
-	madc_hi_cc(high[4], t, b[4], high[4]);
-	madc_hi_cc(high[3], t, b[3], high[3]);
-	madc_hi_cc(high[2], t, b[2], high[2]);
-	madc_hi_cc(high[1], t, b[1], high[1]);
-	madc_hi(high[0], t, b[0], high[0]);
-
-	// At this point we have 16 32-bit words representing a 512-bit value
-	// high[0 ... 7] and c[0 ... 7]
-	const unsigned int s = 977;
-
-	// Store high[6] and high[7] since they will be overwritten
-	unsigned int high7 = high[7];
-	unsigned int high6 = high[6];
-
-	// Take high 256 bits, multiply by 2^32, add to low 256 bits
-	// That is, take high[0 ... 7], shift it left 1 word and add it to c[0 ... 7]
-	add_cc(c[6], high[7], c[6]);
-	addc_cc(c[5], high[6], c[5]);
-	addc_cc(c[4], high[5], c[4]);
-	addc_cc(c[3], high[4], c[3]);
-	addc_cc(c[2], high[3], c[2]);
-	addc_cc(c[1], high[2], c[1]);
-	addc_cc(c[0], high[1], c[0]);
-	addc_cc(high[7], high[0], 0);
-	addc(high[6], 0, 0);
-
-	// Take high 256 bits, multiply by 977, add to low 256 bits
-	// That is, take high[0 ... 5], high6, high7, multiply by 977 and add to c[0 ... 7]
-	mad_lo_cc(c[7], high7, s, c[7]);
-	madc_lo_cc(c[6], high6, s, c[6]);
-	madc_lo_cc(c[5], high[5], s, c[5]);
-	madc_lo_cc(c[4], high[4], s, c[4]);
-	madc_lo_cc(c[3], high[3], s, c[3]);
-	madc_lo_cc(c[2], high[2], s, c[2]);
-	madc_lo_cc(c[1], high[1], s, c[1]);
-	madc_lo_cc(c[0], high[0], s, c[0]);
-	addc_cc(high[7], high[7], 0);
-	addc(high[6], high[6], 0);
-
-	mad_hi_cc(c[6], high7, s, c[6]);
-	madc_hi_cc(c[5], high6, s, c[5]);
-	madc_hi_cc(c[4], high[5], s, c[4]);
-	madc_hi_cc(c[3], high[4], s, c[3]);
-	madc_hi_cc(c[2], high[3], s, c[2]);
-	madc_hi_cc(c[1], high[2], s, c[1]);
-	madc_hi_cc(c[0], high[1], s, c[0]);
-	madc_hi_cc(high[7], high[0], s, high[7]);
-	addc(high[6], high[6], 0);
-
-	// Repeat the same steps, but this time we only need to handle high[6] and high[7]
-	high7 = high[7];
-	high6 = high[6];
-
-	// Take the high 64 bits, multiply by 2^32 and add to the low 256 bits
-	add_cc(c[6], high[7], c[6]);
-	addc_cc(c[5], high[6], c[5]);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], 0, 0);
-
-	// Take the high 64 bits, multiply by 977 and add to the low 256 bits
-	mad_lo_cc(c[7], high7, s, c[7]);
-	madc_lo_cc(c[6], high6, s, c[6]);
-	addc_cc(c[5], c[5], 0);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], high[7], 0);
-
-	mad_hi_cc(c[6], high7, s, c[6]);
-	madc_hi_cc(c[5], high6, s, c[5]);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], high[7], 0);
-
-	bool overflow = high[7] != 0;
-
-	unsigned int borrow = sub(c, _P, c);
-
-	if (overflow)
-	{
-		if (!borrow)
-		{
-			sub(c, _P, c);
-		}
-	}
-	else
-	{
-		if (borrow)
-		{
-			add(c, _P, c);
-		}
-	}
+__device__ __forceinline__ static void subModP(const uint256 &a, const uint256_buf &b, uint256 &c)
+{
+	uint256 copyB = b.toUint256();
+	subModP(a, copyB, c);
 }
 
 __device__ __forceinline__ static void mulModP(const uint256_buf &a, const uint256_buf &b, uint256 &c)
 {
-	uint256 high = uint256();
-
-	unsigned int t = a[7];
-
-	// a[7] * b (low)
-	for (int i = 7; i >= 0; i--)
-	{
-		c[i] = t * b[i];
-	}
-
-	// a[7] * b (high)
-	mad_hi_cc(c[6], t, b[7], c[6]);
-	madc_hi_cc(c[5], t, b[6], c[5]);
-	madc_hi_cc(c[4], t, b[5], c[4]);
-	madc_hi_cc(c[3], t, b[4], c[3]);
-	madc_hi_cc(c[2], t, b[3], c[2]);
-	madc_hi_cc(c[1], t, b[2], c[1]);
-	madc_hi_cc(c[0], t, b[1], c[0]);
-	madc_hi(high[7], t, b[0], high[7]);
-
-	// a[6] * b (low)
-	t = a[6];
-	mad_lo_cc(c[6], t, b[7], c[6]);
-	madc_lo_cc(c[5], t, b[6], c[5]);
-	madc_lo_cc(c[4], t, b[5], c[4]);
-	madc_lo_cc(c[3], t, b[4], c[3]);
-	madc_lo_cc(c[2], t, b[3], c[2]);
-	madc_lo_cc(c[1], t, b[2], c[1]);
-	madc_lo_cc(c[0], t, b[1], c[0]);
-	madc_lo_cc(high[7], t, b[0], high[7]);
-	addc(high[6], high[6], 0);
-
-	// a[6] * b (high)
-	mad_hi_cc(c[5], t, b[7], c[5]);
-	madc_hi_cc(c[4], t, b[6], c[4]);
-	madc_hi_cc(c[3], t, b[5], c[3]);
-	madc_hi_cc(c[2], t, b[4], c[2]);
-	madc_hi_cc(c[1], t, b[3], c[1]);
-	madc_hi_cc(c[0], t, b[2], c[0]);
-	madc_hi_cc(high[7], t, b[1], high[7]);
-	madc_hi(high[6], t, b[0], high[6]);
-
-	// a[5] * b (low)
-	t = a[5];
-	mad_lo_cc(c[5], t, b[7], c[5]);
-	madc_lo_cc(c[4], t, b[6], c[4]);
-	madc_lo_cc(c[3], t, b[5], c[3]);
-	madc_lo_cc(c[2], t, b[4], c[2]);
-	madc_lo_cc(c[1], t, b[3], c[1]);
-	madc_lo_cc(c[0], t, b[2], c[0]);
-	madc_lo_cc(high[7], t, b[1], high[7]);
-	madc_lo_cc(high[6], t, b[0], high[6]);
-	addc(high[5], high[5], 0);
-
-	// a[5] * b (high)
-	mad_hi_cc(c[4], t, b[7], c[4]);
-	madc_hi_cc(c[3], t, b[6], c[3]);
-	madc_hi_cc(c[2], t, b[5], c[2]);
-	madc_hi_cc(c[1], t, b[4], c[1]);
-	madc_hi_cc(c[0], t, b[3], c[0]);
-	madc_hi_cc(high[7], t, b[2], high[7]);
-	madc_hi_cc(high[6], t, b[1], high[6]);
-	madc_hi(high[5], t, b[0], high[5]);
-
-	// a[4] * b (low)
-	t = a[4];
-	mad_lo_cc(c[4], t, b[7], c[4]);
-	madc_lo_cc(c[3], t, b[6], c[3]);
-	madc_lo_cc(c[2], t, b[5], c[2]);
-	madc_lo_cc(c[1], t, b[4], c[1]);
-	madc_lo_cc(c[0], t, b[3], c[0]);
-	madc_lo_cc(high[7], t, b[2], high[7]);
-	madc_lo_cc(high[6], t, b[1], high[6]);
-	madc_lo_cc(high[5], t, b[0], high[5]);
-	addc(high[4], high[4], 0);
-
-	// a[4] * b (high)
-	mad_hi_cc(c[3], t, b[7], c[3]);
-	madc_hi_cc(c[2], t, b[6], c[2]);
-	madc_hi_cc(c[1], t, b[5], c[1]);
-	madc_hi_cc(c[0], t, b[4], c[0]);
-	madc_hi_cc(high[7], t, b[3], high[7]);
-	madc_hi_cc(high[6], t, b[2], high[6]);
-	madc_hi_cc(high[5], t, b[1], high[5]);
-	madc_hi(high[4], t, b[0], high[4]);
-
-	// a[3] * b (low)
-	t = a[3];
-	mad_lo_cc(c[3], t, b[7], c[3]);
-	madc_lo_cc(c[2], t, b[6], c[2]);
-	madc_lo_cc(c[1], t, b[5], c[1]);
-	madc_lo_cc(c[0], t, b[4], c[0]);
-	madc_lo_cc(high[7], t, b[3], high[7]);
-	madc_lo_cc(high[6], t, b[2], high[6]);
-	madc_lo_cc(high[5], t, b[1], high[5]);
-	madc_lo_cc(high[4], t, b[0], high[4]);
-	addc(high[3], high[3], 0);
-
-	// a[3] * b (high)
-	mad_hi_cc(c[2], t, b[7], c[2]);
-	madc_hi_cc(c[1], t, b[6], c[1]);
-	madc_hi_cc(c[0], t, b[5], c[0]);
-	madc_hi_cc(high[7], t, b[4], high[7]);
-	madc_hi_cc(high[6], t, b[3], high[6]);
-	madc_hi_cc(high[5], t, b[2], high[5]);
-	madc_hi_cc(high[4], t, b[1], high[4]);
-	madc_hi(high[3], t, b[0], high[3]);
-
-	// a[2] * b (low)
-	t = a[2];
-	mad_lo_cc(c[2], t, b[7], c[2]);
-	madc_lo_cc(c[1], t, b[6], c[1]);
-	madc_lo_cc(c[0], t, b[5], c[0]);
-	madc_lo_cc(high[7], t, b[4], high[7]);
-	madc_lo_cc(high[6], t, b[3], high[6]);
-	madc_lo_cc(high[5], t, b[2], high[5]);
-	madc_lo_cc(high[4], t, b[1], high[4]);
-	madc_lo_cc(high[3], t, b[0], high[3]);
-	addc(high[2], high[2], 0);
-
-	// a[2] * b (high)
-	mad_hi_cc(c[1], t, b[7], c[1]);
-	madc_hi_cc(c[0], t, b[6], c[0]);
-	madc_hi_cc(high[7], t, b[5], high[7]);
-	madc_hi_cc(high[6], t, b[4], high[6]);
-	madc_hi_cc(high[5], t, b[3], high[5]);
-	madc_hi_cc(high[4], t, b[2], high[4]);
-	madc_hi_cc(high[3], t, b[1], high[3]);
-	madc_hi(high[2], t, b[0], high[2]);
-
-	// a[1] * b (low)
-	t = a[1];
-	mad_lo_cc(c[1], t, b[7], c[1]);
-	madc_lo_cc(c[0], t, b[6], c[0]);
-	madc_lo_cc(high[7], t, b[5], high[7]);
-	madc_lo_cc(high[6], t, b[4], high[6]);
-	madc_lo_cc(high[5], t, b[3], high[5]);
-	madc_lo_cc(high[4], t, b[2], high[4]);
-	madc_lo_cc(high[3], t, b[1], high[3]);
-	madc_lo_cc(high[2], t, b[0], high[2]);
-	addc(high[1], high[1], 0);
-
-	// a[1] * b (high)
-	mad_hi_cc(c[0], t, b[7], c[0]);
-	madc_hi_cc(high[7], t, b[6], high[7]);
-	madc_hi_cc(high[6], t, b[5], high[6]);
-	madc_hi_cc(high[5], t, b[4], high[5]);
-	madc_hi_cc(high[4], t, b[3], high[4]);
-	madc_hi_cc(high[3], t, b[2], high[3]);
-	madc_hi_cc(high[2], t, b[1], high[2]);
-	madc_hi(high[1], t, b[0], high[1]);
-
-	// a[0] * b (low)
-	t = a[0];
-	mad_lo_cc(c[0], t, b[7], c[0]);
-	madc_lo_cc(high[7], t, b[6], high[7]);
-	madc_lo_cc(high[6], t, b[5], high[6]);
-	madc_lo_cc(high[5], t, b[4], high[5]);
-	madc_lo_cc(high[4], t, b[3], high[4]);
-	madc_lo_cc(high[3], t, b[2], high[3]);
-	madc_lo_cc(high[2], t, b[1], high[2]);
-	madc_lo_cc(high[1], t, b[0], high[1]);
-	addc(high[0], high[0], 0);
-
-	// a[0] * b (high)
-	mad_hi_cc(high[7], t, b[7], high[7]);
-	madc_hi_cc(high[6], t, b[6], high[6]);
-	madc_hi_cc(high[5], t, b[5], high[5]);
-	madc_hi_cc(high[4], t, b[4], high[4]);
-	madc_hi_cc(high[3], t, b[3], high[3]);
-	madc_hi_cc(high[2], t, b[2], high[2]);
-	madc_hi_cc(high[1], t, b[1], high[1]);
-	madc_hi(high[0], t, b[0], high[0]);
-
-	// At this point we have 16 32-bit words representing a 512-bit value
-	// high[0 ... 7] and c[0 ... 7]
-	const unsigned int s = 977;
-
-	// Store high[6] and high[7] since they will be overwritten
-	unsigned int high7 = high[7];
-	unsigned int high6 = high[6];
-
-	// Take high 256 bits, multiply by 2^32, add to low 256 bits
-	// That is, take high[0 ... 7], shift it left 1 word and add it to c[0 ... 7]
-	add_cc(c[6], high[7], c[6]);
-	addc_cc(c[5], high[6], c[5]);
-	addc_cc(c[4], high[5], c[4]);
-	addc_cc(c[3], high[4], c[3]);
-	addc_cc(c[2], high[3], c[2]);
-	addc_cc(c[1], high[2], c[1]);
-	addc_cc(c[0], high[1], c[0]);
-	addc_cc(high[7], high[0], 0);
-	addc(high[6], 0, 0);
-
-	// Take high 256 bits, multiply by 977, add to low 256 bits
-	// That is, take high[0 ... 5], high6, high7, multiply by 977 and add to c[0 ... 7]
-	mad_lo_cc(c[7], high7, s, c[7]);
-	madc_lo_cc(c[6], high6, s, c[6]);
-	madc_lo_cc(c[5], high[5], s, c[5]);
-	madc_lo_cc(c[4], high[4], s, c[4]);
-	madc_lo_cc(c[3], high[3], s, c[3]);
-	madc_lo_cc(c[2], high[2], s, c[2]);
-	madc_lo_cc(c[1], high[1], s, c[1]);
-	madc_lo_cc(c[0], high[0], s, c[0]);
-	addc_cc(high[7], high[7], 0);
-	addc(high[6], high[6], 0);
-
-	mad_hi_cc(c[6], high7, s, c[6]);
-	madc_hi_cc(c[5], high6, s, c[5]);
-	madc_hi_cc(c[4], high[5], s, c[4]);
-	madc_hi_cc(c[3], high[4], s, c[3]);
-	madc_hi_cc(c[2], high[3], s, c[2]);
-	madc_hi_cc(c[1], high[2], s, c[1]);
-	madc_hi_cc(c[0], high[1], s, c[0]);
-	madc_hi_cc(high[7], high[0], s, high[7]);
-	addc(high[6], high[6], 0);
-
-	// Repeat the same steps, but this time we only need to handle high[6] and high[7]
-	high7 = high[7];
-	high6 = high[6];
-
-	// Take the high 64 bits, multiply by 2^32 and add to the low 256 bits
-	add_cc(c[6], high[7], c[6]);
-	addc_cc(c[5], high[6], c[5]);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], 0, 0);
-
-	// Take the high 64 bits, multiply by 977 and add to the low 256 bits
-	mad_lo_cc(c[7], high7, s, c[7]);
-	madc_lo_cc(c[6], high6, s, c[6]);
-	addc_cc(c[5], c[5], 0);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], high[7], 0);
-
-	mad_hi_cc(c[6], high7, s, c[6]);
-	madc_hi_cc(c[5], high6, s, c[5]);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], high[7], 0);
-
-	bool overflow = high[7] != 0;
-
-	unsigned int borrow = sub(c, _P, c);
-
-	if (overflow)
-	{
-		if (!borrow)
-		{
-			sub(c, _P, c);
-		}
-	}
-	else
-	{
-		if (borrow)
-		{
-			add(c, _P, c);
-		}
-	}
+	uint256 copyA = a.toUint256(), copyB = b.toUint256();
+	mulModP(copyA, copyB, c);
 }
 
 __device__ __forceinline__ static void mulModP(const uint256 &a, const uint256_buf &b, uint256 &c)
 {
-	uint256 high = uint256();
-
-	unsigned int t = a[7];
-
-	// a[7] * b (low)
-	for (int i = 7; i >= 0; i--)
-	{
-		c[i] = t * b[i];
-	}
-
-	// a[7] * b (high)
-	mad_hi_cc(c[6], t, b[7], c[6]);
-	madc_hi_cc(c[5], t, b[6], c[5]);
-	madc_hi_cc(c[4], t, b[5], c[4]);
-	madc_hi_cc(c[3], t, b[4], c[3]);
-	madc_hi_cc(c[2], t, b[3], c[2]);
-	madc_hi_cc(c[1], t, b[2], c[1]);
-	madc_hi_cc(c[0], t, b[1], c[0]);
-	madc_hi(high[7], t, b[0], high[7]);
-
-	// a[6] * b (low)
-	t = a[6];
-	mad_lo_cc(c[6], t, b[7], c[6]);
-	madc_lo_cc(c[5], t, b[6], c[5]);
-	madc_lo_cc(c[4], t, b[5], c[4]);
-	madc_lo_cc(c[3], t, b[4], c[3]);
-	madc_lo_cc(c[2], t, b[3], c[2]);
-	madc_lo_cc(c[1], t, b[2], c[1]);
-	madc_lo_cc(c[0], t, b[1], c[0]);
-	madc_lo_cc(high[7], t, b[0], high[7]);
-	addc(high[6], high[6], 0);
-
-	// a[6] * b (high)
-	mad_hi_cc(c[5], t, b[7], c[5]);
-	madc_hi_cc(c[4], t, b[6], c[4]);
-	madc_hi_cc(c[3], t, b[5], c[3]);
-	madc_hi_cc(c[2], t, b[4], c[2]);
-	madc_hi_cc(c[1], t, b[3], c[1]);
-	madc_hi_cc(c[0], t, b[2], c[0]);
-	madc_hi_cc(high[7], t, b[1], high[7]);
-	madc_hi(high[6], t, b[0], high[6]);
-
-	// a[5] * b (low)
-	t = a[5];
-	mad_lo_cc(c[5], t, b[7], c[5]);
-	madc_lo_cc(c[4], t, b[6], c[4]);
-	madc_lo_cc(c[3], t, b[5], c[3]);
-	madc_lo_cc(c[2], t, b[4], c[2]);
-	madc_lo_cc(c[1], t, b[3], c[1]);
-	madc_lo_cc(c[0], t, b[2], c[0]);
-	madc_lo_cc(high[7], t, b[1], high[7]);
-	madc_lo_cc(high[6], t, b[0], high[6]);
-	addc(high[5], high[5], 0);
-
-	// a[5] * b (high)
-	mad_hi_cc(c[4], t, b[7], c[4]);
-	madc_hi_cc(c[3], t, b[6], c[3]);
-	madc_hi_cc(c[2], t, b[5], c[2]);
-	madc_hi_cc(c[1], t, b[4], c[1]);
-	madc_hi_cc(c[0], t, b[3], c[0]);
-	madc_hi_cc(high[7], t, b[2], high[7]);
-	madc_hi_cc(high[6], t, b[1], high[6]);
-	madc_hi(high[5], t, b[0], high[5]);
-
-	// a[4] * b (low)
-	t = a[4];
-	mad_lo_cc(c[4], t, b[7], c[4]);
-	madc_lo_cc(c[3], t, b[6], c[3]);
-	madc_lo_cc(c[2], t, b[5], c[2]);
-	madc_lo_cc(c[1], t, b[4], c[1]);
-	madc_lo_cc(c[0], t, b[3], c[0]);
-	madc_lo_cc(high[7], t, b[2], high[7]);
-	madc_lo_cc(high[6], t, b[1], high[6]);
-	madc_lo_cc(high[5], t, b[0], high[5]);
-	addc(high[4], high[4], 0);
-
-	// a[4] * b (high)
-	mad_hi_cc(c[3], t, b[7], c[3]);
-	madc_hi_cc(c[2], t, b[6], c[2]);
-	madc_hi_cc(c[1], t, b[5], c[1]);
-	madc_hi_cc(c[0], t, b[4], c[0]);
-	madc_hi_cc(high[7], t, b[3], high[7]);
-	madc_hi_cc(high[6], t, b[2], high[6]);
-	madc_hi_cc(high[5], t, b[1], high[5]);
-	madc_hi(high[4], t, b[0], high[4]);
-
-	// a[3] * b (low)
-	t = a[3];
-	mad_lo_cc(c[3], t, b[7], c[3]);
-	madc_lo_cc(c[2], t, b[6], c[2]);
-	madc_lo_cc(c[1], t, b[5], c[1]);
-	madc_lo_cc(c[0], t, b[4], c[0]);
-	madc_lo_cc(high[7], t, b[3], high[7]);
-	madc_lo_cc(high[6], t, b[2], high[6]);
-	madc_lo_cc(high[5], t, b[1], high[5]);
-	madc_lo_cc(high[4], t, b[0], high[4]);
-	addc(high[3], high[3], 0);
-
-	// a[3] * b (high)
-	mad_hi_cc(c[2], t, b[7], c[2]);
-	madc_hi_cc(c[1], t, b[6], c[1]);
-	madc_hi_cc(c[0], t, b[5], c[0]);
-	madc_hi_cc(high[7], t, b[4], high[7]);
-	madc_hi_cc(high[6], t, b[3], high[6]);
-	madc_hi_cc(high[5], t, b[2], high[5]);
-	madc_hi_cc(high[4], t, b[1], high[4]);
-	madc_hi(high[3], t, b[0], high[3]);
-
-	// a[2] * b (low)
-	t = a[2];
-	mad_lo_cc(c[2], t, b[7], c[2]);
-	madc_lo_cc(c[1], t, b[6], c[1]);
-	madc_lo_cc(c[0], t, b[5], c[0]);
-	madc_lo_cc(high[7], t, b[4], high[7]);
-	madc_lo_cc(high[6], t, b[3], high[6]);
-	madc_lo_cc(high[5], t, b[2], high[5]);
-	madc_lo_cc(high[4], t, b[1], high[4]);
-	madc_lo_cc(high[3], t, b[0], high[3]);
-	addc(high[2], high[2], 0);
-
-	// a[2] * b (high)
-	mad_hi_cc(c[1], t, b[7], c[1]);
-	madc_hi_cc(c[0], t, b[6], c[0]);
-	madc_hi_cc(high[7], t, b[5], high[7]);
-	madc_hi_cc(high[6], t, b[4], high[6]);
-	madc_hi_cc(high[5], t, b[3], high[5]);
-	madc_hi_cc(high[4], t, b[2], high[4]);
-	madc_hi_cc(high[3], t, b[1], high[3]);
-	madc_hi(high[2], t, b[0], high[2]);
-
-	// a[1] * b (low)
-	t = a[1];
-	mad_lo_cc(c[1], t, b[7], c[1]);
-	madc_lo_cc(c[0], t, b[6], c[0]);
-	madc_lo_cc(high[7], t, b[5], high[7]);
-	madc_lo_cc(high[6], t, b[4], high[6]);
-	madc_lo_cc(high[5], t, b[3], high[5]);
-	madc_lo_cc(high[4], t, b[2], high[4]);
-	madc_lo_cc(high[3], t, b[1], high[3]);
-	madc_lo_cc(high[2], t, b[0], high[2]);
-	addc(high[1], high[1], 0);
-
-	// a[1] * b (high)
-	mad_hi_cc(c[0], t, b[7], c[0]);
-	madc_hi_cc(high[7], t, b[6], high[7]);
-	madc_hi_cc(high[6], t, b[5], high[6]);
-	madc_hi_cc(high[5], t, b[4], high[5]);
-	madc_hi_cc(high[4], t, b[3], high[4]);
-	madc_hi_cc(high[3], t, b[2], high[3]);
-	madc_hi_cc(high[2], t, b[1], high[2]);
-	madc_hi(high[1], t, b[0], high[1]);
-
-	// a[0] * b (low)
-	t = a[0];
-	mad_lo_cc(c[0], t, b[7], c[0]);
-	madc_lo_cc(high[7], t, b[6], high[7]);
-	madc_lo_cc(high[6], t, b[5], high[6]);
-	madc_lo_cc(high[5], t, b[4], high[5]);
-	madc_lo_cc(high[4], t, b[3], high[4]);
-	madc_lo_cc(high[3], t, b[2], high[3]);
-	madc_lo_cc(high[2], t, b[1], high[2]);
-	madc_lo_cc(high[1], t, b[0], high[1]);
-	addc(high[0], high[0], 0);
-
-	// a[0] * b (high)
-	mad_hi_cc(high[7], t, b[7], high[7]);
-	madc_hi_cc(high[6], t, b[6], high[6]);
-	madc_hi_cc(high[5], t, b[5], high[5]);
-	madc_hi_cc(high[4], t, b[4], high[4]);
-	madc_hi_cc(high[3], t, b[3], high[3]);
-	madc_hi_cc(high[2], t, b[2], high[2]);
-	madc_hi_cc(high[1], t, b[1], high[1]);
-	madc_hi(high[0], t, b[0], high[0]);
-
-	// At this point we have 16 32-bit words representing a 512-bit value
-	// high[0 ... 7] and c[0 ... 7]
-	const unsigned int s = 977;
-
-	// Store high[6] and high[7] since they will be overwritten
-	unsigned int high7 = high[7];
-	unsigned int high6 = high[6];
-
-	// Take high 256 bits, multiply by 2^32, add to low 256 bits
-	// That is, take high[0 ... 7], shift it left 1 word and add it to c[0 ... 7]
-	add_cc(c[6], high[7], c[6]);
-	addc_cc(c[5], high[6], c[5]);
-	addc_cc(c[4], high[5], c[4]);
-	addc_cc(c[3], high[4], c[3]);
-	addc_cc(c[2], high[3], c[2]);
-	addc_cc(c[1], high[2], c[1]);
-	addc_cc(c[0], high[1], c[0]);
-	addc_cc(high[7], high[0], 0);
-	addc(high[6], 0, 0);
-
-	// Take high 256 bits, multiply by 977, add to low 256 bits
-	// That is, take high[0 ... 5], high6, high7, multiply by 977 and add to c[0 ... 7]
-	mad_lo_cc(c[7], high7, s, c[7]);
-	madc_lo_cc(c[6], high6, s, c[6]);
-	madc_lo_cc(c[5], high[5], s, c[5]);
-	madc_lo_cc(c[4], high[4], s, c[4]);
-	madc_lo_cc(c[3], high[3], s, c[3]);
-	madc_lo_cc(c[2], high[2], s, c[2]);
-	madc_lo_cc(c[1], high[1], s, c[1]);
-	madc_lo_cc(c[0], high[0], s, c[0]);
-	addc_cc(high[7], high[7], 0);
-	addc(high[6], high[6], 0);
-
-	mad_hi_cc(c[6], high7, s, c[6]);
-	madc_hi_cc(c[5], high6, s, c[5]);
-	madc_hi_cc(c[4], high[5], s, c[4]);
-	madc_hi_cc(c[3], high[4], s, c[3]);
-	madc_hi_cc(c[2], high[3], s, c[2]);
-	madc_hi_cc(c[1], high[2], s, c[1]);
-	madc_hi_cc(c[0], high[1], s, c[0]);
-	madc_hi_cc(high[7], high[0], s, high[7]);
-	addc(high[6], high[6], 0);
-
-	// Repeat the same steps, but this time we only need to handle high[6] and high[7]
-	high7 = high[7];
-	high6 = high[6];
-
-	// Take the high 64 bits, multiply by 2^32 and add to the low 256 bits
-	add_cc(c[6], high[7], c[6]);
-	addc_cc(c[5], high[6], c[5]);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], 0, 0);
-
-	// Take the high 64 bits, multiply by 977 and add to the low 256 bits
-	mad_lo_cc(c[7], high7, s, c[7]);
-	madc_lo_cc(c[6], high6, s, c[6]);
-	addc_cc(c[5], c[5], 0);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], high[7], 0);
-
-	mad_hi_cc(c[6], high7, s, c[6]);
-	madc_hi_cc(c[5], high6, s, c[5]);
-	addc_cc(c[4], c[4], 0);
-	addc_cc(c[3], c[3], 0);
-	addc_cc(c[2], c[2], 0);
-	addc_cc(c[1], c[1], 0);
-	addc_cc(c[0], c[0], 0);
-	addc(high[7], high[7], 0);
-
-	bool overflow = high[7] != 0;
-
-	unsigned int borrow = sub(c, _P, c);
-
-	if (overflow)
-	{
-		if (!borrow)
-		{
-			sub(c, _P, c);
-		}
-	}
-	else
-	{
-		if (borrow)
-		{
-			add(c, _P, c);
-		}
-	}
+	uint256 copyB = b.toUint256();
+	mulModP(a, copyB, c);
 }
 
 __device__ __forceinline__ static void mulModP(const uint256 &a, uint256 &c)
@@ -1045,7 +307,7 @@ __device__ __forceinline__ static void invModP(uint256 &value)
 	value = y;
 }
 
-__device__ static void beginBatchAdd(const uint256 &px, const uint256_buf &x, heap_buf &heapC, int i, uint256 &inverse)
+__device__ static void beginBatchAdd(const uint256 &px, const uint256 &x, heap_buf &heapC, int i, uint256 &inverse)
 {
 	uint256 t;
 
@@ -1058,7 +320,7 @@ __device__ static void beginBatchAdd(const uint256 &px, const uint256_buf &x, he
 	heapC.set(i, inverse);
 }
 
-__device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 &py, const uint256_buf &x, heap_buf &heapC, int i, int batchIdx, uint256 &inverse)
+__device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 &py, const uint256 &x, heap_buf &heapC, int i, int batchIdx, uint256 &inverse)
 {
 	uint256 t;
 
@@ -1075,7 +337,7 @@ __device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 
 	heapC.set(batchIdx, inverse);
 }
 
-__device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 &py, const uint256_buf &x, heap &heapC, int i, int batchIdx, uint256 &inverse)
+__device__ static void beginBatchAddWithDouble(const uint256 &px, const uint256 &py, const uint256 &x, heap &heapC, int i, int batchIdx, uint256 &inverse)
 {
 	uint256 t;
 
